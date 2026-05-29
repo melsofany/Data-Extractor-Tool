@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
-import { doStart, doStop } from "./routes/scraper";
+import { doStart, doStop, killOrphanedScraper } from "./routes/scraper";
 
 const rawPort = process.env["PORT"];
 
@@ -39,4 +39,6 @@ wss.on("connection", (ws) => {
 
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
+  // إنهاء أي سكريبت قديم تبقى من جلسة سابقة
+  killOrphanedScraper().catch(() => {});
 });

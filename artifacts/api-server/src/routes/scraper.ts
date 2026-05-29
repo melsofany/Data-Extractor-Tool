@@ -16,6 +16,18 @@ let startedAt: Date | null = null;
 let finishedAt: Date | null = null;
 let exitCode: number | null = null;
 
+/** يُستدعى مرة واحدة عند بدء السيرفر لإنهاء أي سكريبت قديم تلقائياً */
+export async function killOrphanedScraper(): Promise<void> {
+  try {
+    const pid = parseInt((await readFile(PID_FILE, "utf8")).trim());
+    if (!pid) return;
+    const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
+    if (!cmdline.includes("egypt_companies_scraper")) return;
+    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  } catch { /* no PID file */ }
+  try { await writeFile(PID_FILE, "", "utf8"); } catch { /* ignore */ }
+}
+
 async function isRunning(): Promise<boolean> {
   if (scraperProcess && scraperProcess.exitCode === null) return true;
   try {
