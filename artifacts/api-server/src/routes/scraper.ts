@@ -141,8 +141,8 @@ export async function doStop(): Promise<{ ok: boolean; error?: string }> {
   return { ok: true };
 }
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-router.post("/scraper/start", async (_req, res) => {
+// ─── Start (GET + POST) ───────────────────────────────────────────────────────
+async function handleStart(_req: any, res: any) {
   try {
     const result = await doStart();
     if (!result.ok) { res.status(409).json({ error: result.error }); return; }
@@ -150,17 +150,21 @@ router.post("/scraper/start", async (_req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
-});
+}
+router.get("/scraper/start", handleStart);
+router.post("/scraper/start", handleStart);
 
-// ─── Stop ─────────────────────────────────────────────────────────────────────
-router.post("/scraper/stop", async (_req, res) => {
+// ─── Stop (GET + POST) ────────────────────────────────────────────────────────
+async function handleStop(_req: any, res: any) {
   try {
     const result = await doStop();
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
-});
+}
+router.get("/scraper/stop", handleStop);
+router.post("/scraper/stop", handleStop);
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 router.get("/scraper/status", async (_req, res) => {
