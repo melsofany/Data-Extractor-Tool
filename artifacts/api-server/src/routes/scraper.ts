@@ -1,139 +1,145 @@
 import { Router, type IRouter } from "express";
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFile, access } from "node:fs/promises";
+import { access, readFile, truncate, writeFile, open } from "node:fs/promises";
+import { openSync, closeSync } from "node:fs";
 import path from "node:path";
 
 const router: IRouter = Router();
 
+const SCRIPT_PATH = "/home/runner/workspace/scripts/scraper/egypt_companies_scraper.py";
+const OUTPUT_FILE = "/home/runner/workspace/Egypt_Companies_Real_Data.xlsx";
+const LOG_FILE    = "/tmp/scraper_live.log";
+const PID_FILE    = "/tmp/scraper.pid";
+
 let scraperProcess: ChildProcess | null = null;
-let logLines: string[] = [];
 let startedAt: Date | null = null;
 let finishedAt: Date | null = null;
 let exitCode: number | null = null;
 
-const MAX_LOG_LINES = 500;
-const SCRIPT_PATH = path.resolve("/home/runner/workspace/scripts/scraper/egypt_companies_scraper.py");
-const OUTPUT_FILE = path.resolve("/home/runner/workspace/Egypt_Companies_Real_Data.xlsx");
-const BACKUP_FILE = path.resolve("/home/runner/workspace/backup_temp.xlsx");
-
-function appendLog(line: string) {
-  logLines.push(line);
-  if (logLines.length > MAX_LOG_LINES) {
-    logLines = logLines.slice(-MAX_LOG_LINES);
-  }
-}
-
-function parseStats() {
-  const stats = {
-    companiesFound: 0,
-    idsProcessed: 0,
-    speed: 0,
-    phase: "idle" as "idle" | "yellowpages" | "facebook" | "done",
-  };
-
-  for (let i = logLines.length - 1; i >= 0; i--) {
-    const line = logLines[i] ?? "";
-
-    if (stats.companiesFound === 0) {
-      const m = line.match(/(\d+)\s+شركة\s*\|\s*فحص\s*([\d,]+)\s*\|\s*([\d.]+)\s*req\/s/);
-      if (m) {
-        stats.companiesFound = parseInt(m[1] ?? "0");
-        stats.idsProcessed = parseInt((m[2] ?? "0").replace(/,/g, ""));
-        stats.speed = parseFloat(m[3] ?? "0");
-      }
-    }
-
-    if (line.includes("YellowPages")) stats.phase = "yellowpages";
-    if (line.includes("Facebook")) stats.phase = "facebook";
-    if (line.includes("الملف النهائي")) stats.phase = "done";
-
-    if (stats.companiesFound > 0 && stats.phase !== "idle") break;
-  }
-
-  return stats;
-}
-
-async function outputFileExists() {
+async function isRunning(): Promise<boolean> {
+  if (scraperProcess && scraperProcess.exitCode === null) return true;
   try {
-    await access(OUTPUT_FILE);
+    const pid = parseInt((await readFile(PID_FILE, "utf8")).trim());
+    if (!pid) return false;
+    process.kill(pid, 0); // throws if not running
     return true;
   } catch {
     return false;
   }
 }
 
+async function outputFileExists() {
+  try { await access(OUTPUT_FILE); return true; } catch { return false; }
+}
+
+function parseStats(lines: string[]) {
+  const stats = { companiesFound: 0, idsProcessed: 0, speed: 0, phase: "idle" as string };
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] ?? "";
+    if (!stats.companiesFound) {
+      const m = line.match(/(\d+)\s+شركة\s*\|\s*فحص\s*([\d,]+)\s*\|\s*([\d.]+)\s*req\/s/);
+      if (m) {
+        stats.companiesFound = parseInt(m[1] ?? "0");
+        stats.idsProcessed   = parseInt((m[2] ?? "0").replace(/,/g, ""));
+        stats.speed          = parseFloat(m[3] ?? "0");
+      }
+    }
+    if (line.includes("YellowPages")) stats.phase = "yellowpages";
+    if (line.includes("Facebook"))    stats.phase = "facebook";
+    if (line.includes("الملف النهائي")) stats.phase = "done";
+    if (stats.companiesFound && stats.phase !== "idle") break;
+  }
+  return stats;
+}
+
+async function readLogLines(): Promise<string[]> {
+  try {
+    const raw = await readFile(LOG_FILE, "utf8");
+    return raw.split("\n").filter((l) => l.trim());
+  } catch { return []; }
+}
+
+// ─── Status ───────────────────────────────────────────────────────────────────
 router.get("/scraper/status", async (_req, res) => {
-  const running = scraperProcess !== null && scraperProcess.exitCode === null;
-  const stats = parseStats();
+  const running  = await isRunning();
+  const lines    = await readLogLines();
+  const stats    = parseStats(lines);
   const hasOutput = await outputFileExists();
-
-  res.json({
-    running,
-    startedAt: startedAt?.toISOString() ?? null,
-    finishedAt: finishedAt?.toISOString() ?? null,
-    exitCode,
-    stats,
-    hasOutput,
-    logCount: logLines.length,
-  });
+  res.json({ running, startedAt: startedAt?.toISOString() ?? null,
+    finishedAt: finishedAt?.toISOString() ?? null, exitCode, stats, hasOutput,
+    logCount: lines.length });
 });
 
-router.get("/scraper/logs", (req, res) => {
+// ─── Logs ─────────────────────────────────────────────────────────────────────
+router.get("/scraper/logs", async (req, res) => {
   const since = parseInt(String(req.query["since"] ?? "0"));
-  const lines = logLines.slice(since);
-  res.json({ lines, total: logLines.length });
+  const lines = await readLogLines();
+  res.json({ lines: lines.slice(since), total: lines.length });
 });
 
-router.get("/scraper/start", (_req, res) => {
-  if (scraperProcess && scraperProcess.exitCode === null) {
+// ─── Start ────────────────────────────────────────────────────────────────────
+router.get("/scraper/start", async (_req, res) => {
+  if (await isRunning()) {
     res.status(409).json({ error: "السكريبت شغّال بالفعل" });
     return;
   }
 
-  logLines = [];
-  startedAt = new Date();
+  // Clear old log
+  try { await truncate(LOG_FILE, 0); } catch { /* first run */ }
+  try { await writeFile(LOG_FILE, "", "utf8"); } catch { /* ignore */ }
+
+  startedAt  = new Date();
   finishedAt = null;
-  exitCode = null;
+  exitCode   = null;
+
+  // Open log file synchronously to get a numeric fd for stdio
+  const logFd = openSync(LOG_FILE, "a");
 
   scraperProcess = spawn("python3", ["-u", SCRIPT_PATH], {
     cwd: "/home/runner/workspace",
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    stdio: ["ignore", logFd, logFd],
+    detached: false,
   });
 
-  scraperProcess.stdout?.on("data", (chunk: Buffer) => {
-    const text = chunk.toString();
-    const lines = text.split("\n").filter((l) => l.trim());
-    lines.forEach(appendLog);
-  });
+  closeSync(logFd);
 
-  scraperProcess.stderr?.on("data", (chunk: Buffer) => {
-    const text = chunk.toString();
-    const lines = text.split("\n").filter((l) => l.trim());
-    lines.forEach((l) => appendLog(`[ERR] ${l}`));
-  });
+  await writeFile(PID_FILE, String(scraperProcess.pid ?? ""), "utf8");
 
-  scraperProcess.on("exit", (code) => {
-    finishedAt = new Date();
-    exitCode = code;
+  scraperProcess.on("exit", async (code) => {
+    finishedAt     = new Date();
+    exitCode       = code;
     scraperProcess = null;
-    appendLog(`\n✅ انتهى السكريبت بكود: ${code}`);
+    try {
+      const fd = openSync(LOG_FILE, "a");
+      const { write } = await import("node:fs");
+      const { promisify } = await import("node:util");
+      await promisify(write)(fd, `\n✅ انتهى السكريبت بكود: ${code}\n`);
+      closeSync(fd);
+    } catch { /* ignore */ }
   });
 
-  res.json({ started: true, startedAt: startedAt.toISOString() });
+  res.json({ started: true, startedAt: startedAt.toISOString(), pid: scraperProcess.pid });
 });
 
-router.get("/scraper/stop", (_req, res) => {
-  if (!scraperProcess || scraperProcess.exitCode !== null) {
+// ─── Stop ─────────────────────────────────────────────────────────────────────
+router.get("/scraper/stop", async (_req, res) => {
+  if (!(await isRunning())) {
     res.status(409).json({ error: "السكريبت مش شغّال" });
     return;
   }
 
-  scraperProcess.kill("SIGTERM");
-  setTimeout(() => {
-    if (scraperProcess) scraperProcess.kill("SIGKILL");
-  }, 3000);
+  if (scraperProcess) {
+    scraperProcess.kill("SIGTERM");
+    setTimeout(() => { try { scraperProcess?.kill("SIGKILL"); } catch {} }, 3000);
+  } else {
+    try {
+      const pid = parseInt((await readFile(PID_FILE, "utf8")).trim());
+      process.kill(pid, "SIGTERM");
+      setTimeout(() => { try { process.kill(pid, "SIGKILL"); } catch {} }, 3000);
+    } catch { /* already gone */ }
+  }
 
-  appendLog("⛔ تم إيقاف السكريبت يدوياً");
   res.json({ stopped: true });
 });
 
