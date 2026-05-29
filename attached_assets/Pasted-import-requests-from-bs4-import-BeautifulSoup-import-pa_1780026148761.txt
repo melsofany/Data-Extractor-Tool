@@ -1,0 +1,165 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import time
+import random
+import re
+
+# ========== إعدادات ==========
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
+OUTPUT_FILE = "Egypt_Companies_Real_Data.xlsx"
+MAX_COMPANIES_PER_CATEGORY = 600  # نستهدف حوالي 5000 إجمالًا على 9 فئات = 560 شركة تقريبًا لكل فئة
+DELAY = 2  # احترام الموقع وتجنب الحظر
+
+# ========== قائمة الفئات بالعربية وما يقابلها من روابط في yellowpages.com.eg ==========
+CATEGORIES = {
+    "الصحة والسلامة ومقاومة الحريق": [
+        "https://www.yellowpages.com.eg/en/category/health-safety-equipment/590",
+        "https://www.yellowpages.com.eg/en/category/fire-fighting-equipment/298"
+    ],
+    "الكهرباء والكابلات والأسلاك": [
+        "https://www.yellowpages.com.eg/en/category/electric-cables-wires/234",
+        "https://www.yellowpages.com.eg/en/category/electrical-equipment-supplies/235"
+    ],
+    "الميكانيكا": [
+        "https://www.yellowpages.com.eg/en/category/mechanical-engineering/431"
+    ],
+    "الإلكترونيات": [
+        "https://www.yellowpages.com.eg/en/category/electronics/271"
+    ],
+    "أدوات النظافة": [
+        "https://www.yellowpages.com.eg/en/category/cleaning-equipment-supplies/154"
+    ],
+    "معدات المطابخ الكبيرة الفندقية وقطع غيارها": [
+        "https://www.yellowpages.com.eg/en/category/hotel-equipment-supplies/356",
+        "https://www.yellowpages.com.eg/en/category/kitchen-equipment-commercial/385"
+    ],
+    "الأثاث المكتبي": [
+        "https://www.yellowpages.com.eg/en/category/office-furniture/480"
+    ],
+    "تكنولوجيا المعلومات (IT)": [
+        "https://www.yellowpages.com.eg/en/category/information-technology/370",
+        "https://www.yellowpages.com.eg/en/category/computer-hardware-software/180"
+    ]
+}
+
+# ========== دالة استخراج بيانات شركة واحدة من صفحة نتائج البحث ==========
+def extract_company_from_card(card):
+    try:
+        # اسم الشركة
+        name_tag = card.find('h2') or card.find('a', class_='company-name')
+        name = name_tag.text.strip() if name_tag else None
+
+        # رابط تفاصيل الشركة (لجلب البريد الإلكتروني أحيانًا)
+        link_tag = card.find('a', href=True)
+        detail_url = "https://www.yellowpages.com.eg" + link_tag['href'] if link_tag and link_tag['href'].startswith('/') else None
+
+        # الهاتف والموبايل
+        phone = None
+        mobile = None
+        phone_tags = card.find_all('span', class_='phone-number')
+        for p in phone_tags:
+            text = p.text.strip()
+            digits = re.sub(r'\D', '', text)
+            if digits.startswith('01') and len(digits) == 11:  # موبايل مصري
+                mobile = digits
+            elif len(digits) >= 7:  # هاتف أرضي
+                phone = digits
+
+        # العنوان
+        address_tag = card.find('span', class_='address') or card.find('div', class_='address')
+        address = address_tag.text.strip() if address_tag else None
+
+        # البريد الإلكتروني (غالبًا يحتاج لزيارة صفحة التفاصيل، سنقوم بذلك لاحقًا)
+        email = None
+        if detail_url:
+            email = get_email_from_detail(detail_url)
+
+        # تحويل الموبايل إلى رقم واتساب (نفس الرقم مع افتراض أنه واتساب)
+        whatsapp = mobile  # في مصر أغلب أرقام المحمول تُستخدم واتساب
+
+        return {
+            'Company Name': name,
+            'Phone': phone,
+            'WhatsApp': whatsapp,
+            'Email': email,
+            'Address': address,
+            'Category': None  # سنملؤه لاحقًا
+        }
+    except Exception as e:
+        return None
+
+# ========== دالة جلب البريد الإلكتروني من صفحة التفاصيل ==========
+def get_email_from_detail(url):
+    try:
+        time.sleep(1)
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            # البحث عن أي نص يحتوي على @
+            email_element = soup.find('a', href=lambda x: x and x.startswith('mailto:'))
+            if email_element:
+                return email_element.text.strip()
+            # أو عبر regex في النص الكامل
+            text = soup.get_text()
+            match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+            if match:
+                return match.group(0)
+    except:
+        pass
+    return None
+
+# ========== دالة التصفح في فئة معينة وجمع البيانات ==========
+def scrape_category(category_name, urls, max_companies):
+    companies = []
+    for base_url in urls:
+        page = 1
+        while len(companies) < max_companies:
+            url = f"{base_url}?page={page}" if page > 1 else base_url
+            print(f"جاري تصفح: {category_name} - صفحة {page} - {url}")
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=15)
+                if resp.status_code != 200:
+                    break
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                # البحث عن بطاقات الشركات (قد يختلف الكلاس حسب هيكل الموقع، حدثناه حسب فحص الموقع)
+                cards = soup.find_all('div', class_='listing-card') or soup.find_all('div', class_='search-result')
+                if not cards:
+                    cards = soup.find_all('div', class_='company-item')  # احتياطي
+
+                if not cards:
+                    print("لم يتم العثور على بطاقات في هذه الصفحة، ربما تغير الهيكل أو انتهت النتائج.")
+                    break
+
+                for card in cards:
+                    data = extract_company_from_card(card)
+                    if data:
+                        data['Category'] = category_name
+                        companies.append(data)
+                        if len(companies) >= max_companies:
+                            break
+                time.sleep(DELAY + random.uniform(0, 2))
+                page += 1
+            except Exception as e:
+                print(f"خطأ: {e}")
+                break
+        print(f"تم جمع {len(companies)} شركة من فئة {category_name} حتى الآن")
+    return companies[:max_companies]
+
+# ========== التشغيل الرئيسي ==========
+if __name__ == "__main__":
+    all_companies = []
+    for cat_name, urls in CATEGORIES.items():
+        comps = scrape_category(cat_name, urls, MAX_COMPANIES_PER_CATEGORY)
+        all_companies.extend(comps)
+        print(f"إجمالي الشركات الآن: {len(all_companies)}")
+        # حفظ احتياطي كل فئة
+        pd.DataFrame(all_companies).to_excel("backup_temp.xlsx", index=False)
+
+    # حفظ الملف النهائي
+    df = pd.DataFrame(all_companies)
+    df.drop_duplicates(subset=['Phone', 'Company Name'], inplace=True)
+    df.to_excel(OUTPUT_FILE, index=False)
+    print(f"تم بنجاح! عدد الشركات الفريد في الملف: {len(df)}. اسم الملف: {OUTPUT_FILE}")
