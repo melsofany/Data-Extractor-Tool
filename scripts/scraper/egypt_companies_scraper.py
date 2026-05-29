@@ -201,10 +201,17 @@ def extract_from_page(html: str, cid: int) -> dict | None:
     }
 
 
+_blocked_count = 0  # عداد مشترك لطلبات 403
+
+
 def scrape_yp_id(cid: int) -> dict | None:
+    global _blocked_count
     url = f"https://www.yellowpages.com.eg/en/profile/x/{cid}"
     try:
         r = requests.get(url, headers=hdrs(), timeout=10)
+        if r.status_code == 403:
+            _blocked_count += 1
+            return None
         if r.status_code in (404, 410) or len(r.text) < 5000:
             return None
         if r.status_code != 200:
@@ -222,6 +229,9 @@ def run_yp_scraper(
     sample_size: int | None = None,
 ) -> list[dict]:
     """يجمع شركات من YP بالتوازي"""
+    global _blocked_count
+    _blocked_count = 0
+
     all_ids = list(range(id_start, id_end + 1))
     random.shuffle(all_ids)
     if sample_size:
@@ -233,6 +243,7 @@ def run_yp_scraper(
     companies: list[dict] = []
     processed = 0
     start_t = time.time()
+    last_block_warn = 0
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {ex.submit(scrape_yp_id, cid): cid for cid in all_ids}
@@ -251,8 +262,27 @@ def run_yp_scraper(
                         f.cancel()
                     break
 
+            # تقرير تقدم كل 1000 طلب
+            if processed % 1000 == 0:
+                elapsed = time.time() - start_t
+                rate = processed / elapsed if elapsed > 0 else 0
+                print(f"  ⏳ {len(companies):4d} شركة | فحص {processed:,} | {rate:.1f} req/s | محجوب: {_blocked_count}")
+
+            # تحذير مبكر إذا كان الموقع يحجب الطلبات
+            if _blocked_count >= 50 and _blocked_count != last_block_warn and _blocked_count % 50 == 0:
+                last_block_warn = _blocked_count
+                block_pct = int(_blocked_count / max(processed, 1) * 100)
+                print(f"  ⚠️ [ERR] الموقع يحجب الطلبات — {_blocked_count} طلب محجوب ({block_pct}% من الإجمالي)")
+                if block_pct >= 80 and processed >= 200:
+                    print(f"  ❌ [ERR] الموقع يحجب أكثر من 80% من الطلبات — YellowPages يمنع السكريبت حالياً")
+                    for f in futures:
+                        f.cancel()
+                    break
+
     elapsed = time.time() - start_t
     print(f"\n  📌 فحصنا {processed:,} ID خلال {elapsed:.0f}ث → {len(companies)} شركة في الفئات")
+    if _blocked_count > 0:
+        print(f"  ⚠️ طلبات محجوبة (403): {_blocked_count}")
     return companies
 
 
