@@ -83,8 +83,7 @@ const HTML = `<!DOCTYPE html>
 <script>
 let logOffset=0, polling=null, startTime=null;
 
-const NO_CACHE_GET = { cache: 'no-store' };
-const POST_OPTS   = { method: 'POST' };
+const NC = { cache: 'no-store' };
 
 function showErr(msg){ const e=document.getElementById('errMsg'); e.textContent=msg; e.classList.add('show'); }
 function hideErr(){ document.getElementById('errMsg').classList.remove('show'); }
@@ -123,7 +122,7 @@ function phaseLabel(p){
 
 async function fetchStatus(){
   try{
-    const r=await fetch('/api/scraper/status?_='+Date.now(), NO_CACHE_GET);
+    const r=await fetch('/api/scraper/status?_='+Date.now(), NC);
     if(!r.ok) return;
     const d=await r.json();
     const running=d.running;
@@ -158,7 +157,7 @@ async function fetchStatus(){
 
 async function fetchLogs(){
   try{
-    const r=await fetch('/api/scraper/logs?since='+logOffset+'&_='+Date.now(), NO_CACHE_GET);
+    const r=await fetch('/api/scraper/logs?since='+logOffset+'&_='+Date.now(), NC);
     if(!r.ok) return;
     const d=await r.json();
     if(d.lines.length>0){
@@ -175,9 +174,9 @@ async function startScraper(){
   logOffset=0;
   startTime=Date.now();
   try{
-    const r=await fetch('/api/scraper/start', POST_OPTS);
-    const d=await r.json();
-    if(!r.ok){ showErr('خطأ: '+(d.error||r.status)); document.getElementById('startBtn').disabled=false; return; }
+    const r=await fetch('/api/scraper/start?_='+Date.now(), NC);
+    const text=await r.text();
+    if(!r.ok){ showErr('خطأ '+(r.status)+': '+text); document.getElementById('startBtn').disabled=false; return; }
     startPolling();
   }catch(e){
     showErr('تعذر الاتصال بالسيرفر: '+e.message);
@@ -187,7 +186,7 @@ async function startScraper(){
 
 async function stopScraper(){
   try{
-    await fetch('/api/scraper/stop', POST_OPTS);
+    await fetch('/api/scraper/stop?_='+Date.now(), NC);
   }catch(e){}
 }
 

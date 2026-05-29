@@ -84,7 +84,7 @@ router.get("/scraper/logs", (req, res) => {
   res.json({ lines, total: logLines.length });
 });
 
-router.post("/scraper/start", (_req, res) => {
+router.get("/scraper/start", (_req, res) => {
   if (scraperProcess && scraperProcess.exitCode === null) {
     res.status(409).json({ error: "السكريبت شغّال بالفعل" });
     return;
@@ -122,7 +122,7 @@ router.post("/scraper/start", (_req, res) => {
   res.json({ started: true, startedAt: startedAt.toISOString() });
 });
 
-router.post("/scraper/stop", (_req, res) => {
+router.get("/scraper/stop", (_req, res) => {
   if (!scraperProcess || scraperProcess.exitCode !== null) {
     res.status(409).json({ error: "السكريبت مش شغّال" });
     return;
