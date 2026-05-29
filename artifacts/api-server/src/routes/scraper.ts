@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, readFile, truncate, writeFile, open } from "node:fs/promises";
-import { openSync, closeSync } from "node:fs";
+import { access, readFile, truncate, writeFile } from "node:fs/promises";
+import { openSync, closeSync, appendFileSync } from "node:fs";
 import path from "node:path";
 
 const router: IRouter = Router();
@@ -21,7 +21,7 @@ async function isRunning(): Promise<boolean> {
   try {
     const pid = parseInt((await readFile(PID_FILE, "utf8")).trim());
     if (!pid) return false;
-    process.kill(pid, 0); // throws if not running
+    process.kill(pid, 0);
     return true;
   } catch {
     return false;
@@ -59,32 +59,9 @@ async function readLogLines(): Promise<string[]> {
   } catch { return []; }
 }
 
-// ─── Status ───────────────────────────────────────────────────────────────────
-router.get("/scraper/status", async (_req, res) => {
-  const running  = await isRunning();
-  const lines    = await readLogLines();
-  const stats    = parseStats(lines);
-  const hasOutput = await outputFileExists();
-  res.json({ running, startedAt: startedAt?.toISOString() ?? null,
-    finishedAt: finishedAt?.toISOString() ?? null, exitCode, stats, hasOutput,
-    logCount: lines.length });
-});
+async function doStart(): Promise<{ ok: boolean; error?: string; pid?: number }> {
+  if (await isRunning()) return { ok: false, error: "السكريبت شغّال بالفعل" };
 
-// ─── Logs ─────────────────────────────────────────────────────────────────────
-router.get("/scraper/logs", async (req, res) => {
-  const since = parseInt(String(req.query["since"] ?? "0"));
-  const lines = await readLogLines();
-  res.json({ lines: lines.slice(since), total: lines.length });
-});
-
-// ─── Start ────────────────────────────────────────────────────────────────────
-router.get("/scraper/run", async (_req, res) => {
-  if (await isRunning()) {
-    res.status(409).json({ error: "السكريبت شغّال بالفعل" });
-    return;
-  }
-
-  // Clear old log
   try { await truncate(LOG_FILE, 0); } catch { /* first run */ }
   try { await writeFile(LOG_FILE, "", "utf8"); } catch { /* ignore */ }
 
@@ -92,42 +69,29 @@ router.get("/scraper/run", async (_req, res) => {
   finishedAt = null;
   exitCode   = null;
 
-  // Open log file synchronously to get a numeric fd for stdio
   const logFd = openSync(LOG_FILE, "a");
-
   scraperProcess = spawn("python3", ["-u", SCRIPT_PATH], {
     cwd: "/home/runner/workspace",
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
     stdio: ["ignore", logFd, logFd],
     detached: false,
   });
-
   closeSync(logFd);
 
   await writeFile(PID_FILE, String(scraperProcess.pid ?? ""), "utf8");
 
-  scraperProcess.on("exit", async (code) => {
+  scraperProcess.on("exit", (code) => {
     finishedAt     = new Date();
     exitCode       = code;
     scraperProcess = null;
-    try {
-      const fd = openSync(LOG_FILE, "a");
-      const { write } = await import("node:fs");
-      const { promisify } = await import("node:util");
-      await promisify(write)(fd, `\n✅ انتهى السكريبت بكود: ${code}\n`);
-      closeSync(fd);
-    } catch { /* ignore */ }
+    try { appendFileSync(LOG_FILE, `\n✅ انتهى السكريبت بكود: ${code}\n`); } catch { /* ignore */ }
   });
 
-  res.json({ started: true, startedAt: startedAt.toISOString(), pid: scraperProcess.pid });
-});
+  return { ok: true, pid: scraperProcess.pid };
+}
 
-// ─── Stop ─────────────────────────────────────────────────────────────────────
-router.get("/scraper/halt", async (_req, res) => {
-  if (!(await isRunning())) {
-    res.status(409).json({ error: "السكريبت مش شغّال" });
-    return;
-  }
+async function doStop(): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isRunning())) return { ok: false, error: "السكريبت مش شغّال" };
 
   if (scraperProcess) {
     scraperProcess.kill("SIGTERM");
@@ -140,7 +104,47 @@ router.get("/scraper/halt", async (_req, res) => {
     } catch { /* already gone */ }
   }
 
-  res.json({ stopped: true });
+  return { ok: true };
+}
+
+// ─── Status (also handles start/stop via ?set=1 / ?set=0) ────────────────────
+router.get("/scraper/status", async (req, res) => {
+  const set = req.query["set"];
+
+  if (set === "1") {
+    const result = await doStart();
+    if (!result.ok) { res.status(409).json({ error: result.error }); return; }
+  } else if (set === "0") {
+    const result = await doStop();
+    if (!result.ok) { res.status(409).json({ error: result.error }); return; }
+  }
+
+  const running   = await isRunning();
+  const lines     = await readLogLines();
+  const stats     = parseStats(lines);
+  const hasOutput = await outputFileExists();
+  res.json({
+    running,
+    startedAt:  startedAt?.toISOString()  ?? null,
+    finishedAt: finishedAt?.toISOString() ?? null,
+    exitCode,
+    stats,
+    hasOutput,
+    logCount: lines.length,
+  });
+});
+
+// ─── Logs ─────────────────────────────────────────────────────────────────────
+router.get("/scraper/logs", async (req, res) => {
+  const since = parseInt(String(req.query["since"] ?? "0"));
+  const lines = await readLogLines();
+  res.json({ lines: lines.slice(since), total: lines.length });
+});
+
+// ─── Download ─────────────────────────────────────────────────────────────────
+router.get("/scraper/download", async (_req, res) => {
+  if (!(await outputFileExists())) { res.status(404).json({ error: "الملف غير موجود" }); return; }
+  res.download(OUTPUT_FILE, path.basename(OUTPUT_FILE));
 });
 
 export default router;
