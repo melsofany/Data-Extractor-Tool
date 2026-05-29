@@ -205,15 +205,18 @@ function startPolling(){
   polling=setInterval(async()=>{
     await fetchLogs();
     await fetchStatus();
-  },1500);
+  },1000);
 }
 
 connectWS();
+// تحديث فوري عند التحميل ثم كل ثانية
 (async()=>{
   await fetchStatus();
   await fetchLogs();
   startPolling();
 })();
+// تحديث ثانٍ بعد 500ms للتأكد من حالة التشغيل
+setTimeout(async()=>{ await fetchStatus(); await fetchLogs(); }, 500);
 </script>
 </body>
 </html>`;
