@@ -194,7 +194,7 @@ async function startScraper(){
   document.getElementById('badge').className='badge running';
   document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
   try{
-    const r=await fetch('/api/scraper/start?_='+Date.now());
+    const r=await fetch('/api/scraper/status?q=1&_='+Date.now());
     const d=await r.json();
     if(!r.ok||d.error){ showErr(d.error||'حدث خطأ'); document.getElementById('startBtn').disabled=false; return; }
   }catch(e){ showErr('خطأ: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; return; }
@@ -202,7 +202,7 @@ async function startScraper(){
 }
 
 async function stopScraper(){
-  await fetch('/api/scraper/stop?_='+Date.now()).catch(()=>{});
+  await fetch('/api/scraper/status?q=0&_='+Date.now()).catch(()=>{});
 }
 
 function startPolling(){

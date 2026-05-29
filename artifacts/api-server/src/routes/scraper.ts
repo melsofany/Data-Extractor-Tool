@@ -166,8 +166,21 @@ async function handleStop(_req: any, res: any) {
 router.get("/scraper/stop", handleStop);
 router.post("/scraper/stop", handleStop);
 
-// ─── Status ───────────────────────────────────────────────────────────────────
-router.get("/scraper/status", async (_req, res) => {
+// ─── Status (q=1 → start, q=0 → stop) ───────────────────────────────────────
+router.get("/scraper/status", async (req, res) => {
+  const q = req.query["q"];
+
+  if (q === "1") {
+    try {
+      const result = await doStart();
+      if (!result.ok) { res.status(409).json({ error: result.error }); return; }
+    } catch (e) {
+      res.status(500).json({ error: String(e) }); return;
+    }
+  } else if (q === "0") {
+    try { await doStop(); } catch { /* ignore */ }
+  }
+
   const running   = await isRunning();
   const lines     = await readLogLines();
   const stats     = parseStats(lines);
