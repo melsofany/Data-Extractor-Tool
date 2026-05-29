@@ -45,6 +45,8 @@ const HTML = `<!DOCTYPE html>
   .dl-btn.show{display:inline-block}
   .dl-btn:hover{background:#0284c7}
   .time-info{font-size:.78rem;color:#64748b;margin-top:8px;text-align:center}
+  .err-msg{background:#450a0a;color:#f87171;border-radius:8px;padding:8px 14px;font-size:.8rem;margin-top:8px;display:none}
+  .err-msg.show{display:block}
 </style>
 </head>
 <body>
@@ -62,6 +64,8 @@ const HTML = `<!DOCTYPE html>
   </div>
 </div>
 
+<div id="errMsg" class="err-msg"></div>
+
 <div class="grid">
   <div class="card"><div class="val" id="cFound">0</div><div class="lbl">شركة تم جمعها</div></div>
   <div class="card"><div class="val" id="cIds">0</div><div class="lbl">ID تم فحصه</div></div>
@@ -78,6 +82,11 @@ const HTML = `<!DOCTYPE html>
 
 <script>
 let logOffset=0, polling=null, startTime=null;
+
+const NO_CACHE = { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } };
+
+function showErr(msg){ const e=document.getElementById('errMsg'); e.textContent=msg; e.classList.add('show'); }
+function hideErr(){ document.getElementById('errMsg').classList.remove('show'); }
 
 function colorLine(l){
   if(l.startsWith('[ERR]')) return 'err';
@@ -113,7 +122,8 @@ function phaseLabel(p){
 
 async function fetchStatus(){
   try{
-    const r=await fetch('/api/scraper/status');
+    const r=await fetch('/api/scraper/status?_='+Date.now(), NO_CACHE);
+    if(!r.ok) return;
     const d=await r.json();
     const running=d.running;
     const s=d.stats;
@@ -142,31 +152,42 @@ async function fetchStatus(){
       const fi=d.finishedAt?(' | انتهى: '+new Date(d.finishedAt).toLocaleString('ar-EG')):'';
       document.getElementById('timeInfo').textContent='بدأ: '+si+fi;
     }
-  }catch(e){}
+  }catch(e){ console.error('status error',e); }
 }
 
 async function fetchLogs(){
   try{
-    const r=await fetch('/api/scraper/logs?since='+logOffset);
+    const r=await fetch('/api/scraper/logs?since='+logOffset+'&_='+Date.now(), NO_CACHE);
+    if(!r.ok) return;
     const d=await r.json();
     if(d.lines.length>0){
       appendLines(d.lines);
       logOffset=d.total;
     }
-  }catch(e){}
+  }catch(e){ console.error('logs error',e); }
 }
 
 async function startScraper(){
+  hideErr();
   document.getElementById('startBtn').disabled=true;
   document.getElementById('logBox').innerHTML='';
   logOffset=0;
   startTime=Date.now();
-  await fetch('/api/scraper/start',{method:'POST'});
-  startPolling();
+  try{
+    const r=await fetch('/api/scraper/start',{ method:'POST', ...NO_CACHE });
+    const d=await r.json();
+    if(!r.ok){ showErr('خطأ: '+(d.error||r.status)); document.getElementById('startBtn').disabled=false; return; }
+    startPolling();
+  }catch(e){
+    showErr('تعذر الاتصال بالسيرفر: '+e.message);
+    document.getElementById('startBtn').disabled=false;
+  }
 }
 
 async function stopScraper(){
-  await fetch('/api/scraper/stop',{method:'POST'});
+  try{
+    await fetch('/api/scraper/stop',{ method:'POST', ...NO_CACHE });
+  }catch(e){}
 }
 
 function startPolling(){
@@ -188,6 +209,7 @@ function startPolling(){
 
 router.get("/", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
   res.send(HTML);
 });
 

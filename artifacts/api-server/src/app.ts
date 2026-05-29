@@ -8,6 +8,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 
 const app: Express = express();
+app.set("etag", false);
 
 app.use(
   pinoHttp({
