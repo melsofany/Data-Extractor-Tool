@@ -77,7 +77,11 @@ async function readLogLines(): Promise<string[]> {
 }
 
 export async function doStart(): Promise<{ ok: boolean; error?: string; pid?: number }> {
-  if (await isRunning()) return { ok: false, error: "السكريبت شغّال بالفعل" };
+  // إذا كان شغّالاً، أوقفه أولاً ثم ابدأ من جديد
+  if (await isRunning()) {
+    await doStop();
+    await new Promise((r) => setTimeout(r, 500));
+  }
 
   try { await truncate(LOG_FILE, 0); } catch { /* first run */ }
   try { await writeFile(LOG_FILE, "", "utf8"); } catch { /* ignore */ }
