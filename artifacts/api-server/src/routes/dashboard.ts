@@ -174,7 +174,7 @@ async function startScraper(){
   logOffset=0;
   startTime=Date.now();
   try{
-    const r=await fetch('/api/scraper/start?_='+Date.now(), NC);
+    const r=await fetch('/api/scraper/run?_='+Date.now(), NC);
     const text=await r.text();
     if(!r.ok){ showErr('خطأ '+(r.status)+': '+text); document.getElementById('startBtn').disabled=false; return; }
     startPolling();
@@ -186,7 +186,7 @@ async function startScraper(){
 
 async function stopScraper(){
   try{
-    await fetch('/api/scraper/stop?_='+Date.now(), NC);
+    await fetch('/api/scraper/halt?_='+Date.now(), NC);
   }catch(e){}
 }
 

@@ -78,7 +78,7 @@ router.get("/scraper/logs", async (req, res) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-router.get("/scraper/start", async (_req, res) => {
+router.get("/scraper/run", async (_req, res) => {
   if (await isRunning()) {
     res.status(409).json({ error: "السكريبت شغّال بالفعل" });
     return;
@@ -123,7 +123,7 @@ router.get("/scraper/start", async (_req, res) => {
 });
 
 // ─── Stop ─────────────────────────────────────────────────────────────────────
-router.get("/scraper/stop", async (_req, res) => {
+router.get("/scraper/halt", async (_req, res) => {
   if (!(await isRunning())) {
     res.status(409).json({ error: "السكريبت مش شغّال" });
     return;
