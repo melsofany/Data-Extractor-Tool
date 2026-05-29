@@ -21,6 +21,9 @@ async function isRunning(): Promise<boolean> {
   try {
     const pid = parseInt((await readFile(PID_FILE, "utf8")).trim());
     if (!pid) return false;
+    // Verify the PID belongs to our scraper script, not just any process
+    const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
+    if (!cmdline.includes("egypt_companies_scraper")) return false;
     process.kill(pid, 0);
     return true;
   } catch {
