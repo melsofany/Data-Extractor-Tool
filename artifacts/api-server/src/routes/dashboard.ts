@@ -167,27 +167,37 @@ async function fetchLogs(){
   }catch(e){ console.error('logs error',e); }
 }
 
-async function startScraper(){
+let ws=null;
+let wsReady=false;
+
+function connectWS(){
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  try{ ws=new WebSocket(proto+'//'+location.host); }catch(e){ setTimeout(connectWS,3000); return; }
+  ws.onopen=()=>{ wsReady=true; };
+  ws.onclose=()=>{ wsReady=false; setTimeout(connectWS,2000); };
+  ws.onerror=()=>{ wsReady=false; };
+  ws.onmessage=(e)=>{
+    try{
+      const d=JSON.parse(e.data);
+      if(d.ok===false && d.error){ showErr(d.error); document.getElementById('startBtn').disabled=false; return; }
+      if(d.ok===true||d.pid){ startPolling(); document.getElementById('startBtn').disabled=false; }
+    }catch(err){}
+  };
+}
+
+function startScraper(){
   hideErr();
   document.getElementById('startBtn').disabled=true;
   document.getElementById('logBox').innerHTML='';
   logOffset=0;
   startTime=Date.now();
-  try{
-    const r=await fetch('/api/scraper/status?set=1&_='+Date.now(), NC);
-    const text=await r.text();
-    if(!r.ok){ showErr('خطأ '+(r.status)+': '+text); document.getElementById('startBtn').disabled=false; return; }
-    startPolling();
-  }catch(e){
-    showErr('تعذر الاتصال بالسيرفر: '+e.message);
-    document.getElementById('startBtn').disabled=false;
-  }
+  if(!wsReady){ showErr('جاري الاتصال... جرّب مرة أخرى'); document.getElementById('startBtn').disabled=false; return; }
+  ws.send(JSON.stringify({cmd:'go'}));
+  startPolling();
 }
 
-async function stopScraper(){
-  try{
-    await fetch('/api/scraper/status?set=0&_='+Date.now(), NC);
-  }catch(e){}
+function stopScraper(){
+  if(wsReady) ws.send(JSON.stringify({cmd:'off'}));
 }
 
 function startPolling(){
@@ -198,6 +208,7 @@ function startPolling(){
   },1500);
 }
 
+connectWS();
 (async()=>{
   await fetchStatus();
   await fetchLogs();

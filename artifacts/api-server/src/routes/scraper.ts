@@ -59,7 +59,7 @@ async function readLogLines(): Promise<string[]> {
   } catch { return []; }
 }
 
-async function doStart(): Promise<{ ok: boolean; error?: string; pid?: number }> {
+export async function doStart(): Promise<{ ok: boolean; error?: string; pid?: number }> {
   if (await isRunning()) return { ok: false, error: "السكريبت شغّال بالفعل" };
 
   try { await truncate(LOG_FILE, 0); } catch { /* first run */ }
@@ -90,7 +90,7 @@ async function doStart(): Promise<{ ok: boolean; error?: string; pid?: number }>
   return { ok: true, pid: scraperProcess.pid };
 }
 
-async function doStop(): Promise<{ ok: boolean; error?: string }> {
+export async function doStop(): Promise<{ ok: boolean; error?: string }> {
   if (!(await isRunning())) return { ok: false, error: "السكريبت مش شغّال" };
 
   if (scraperProcess) {
