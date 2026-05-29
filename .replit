@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-3.11"]
+modules = ["nodejs-20", "python-3.12", "web"]
 
 [deployment]
 router = "application"
@@ -24,20 +24,24 @@ args = "Egypt Scraper"
 name = "Egypt Scraper"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && python3 scripts/scraper/egypt_companies_scraper.py 2>&1 | tee /tmp/scraper_run.log"
 
-[workflows.workflow.metadata]
-outputType = "console"
-
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
 
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
 
 [[ports]]
 localPort = 8080
@@ -49,3 +53,4 @@ externalPort = 8081
 
 [nix]
 channel = "stable-25_05"
+packages = ["glibcLocales"]
