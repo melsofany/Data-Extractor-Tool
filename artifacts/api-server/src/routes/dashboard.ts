@@ -83,7 +83,8 @@ const HTML = `<!DOCTYPE html>
 <script>
 let logOffset=0, polling=null, startTime=null;
 
-const NO_CACHE = { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } };
+const NO_CACHE_GET = { cache: 'no-store' };
+const POST_OPTS   = { method: 'POST' };
 
 function showErr(msg){ const e=document.getElementById('errMsg'); e.textContent=msg; e.classList.add('show'); }
 function hideErr(){ document.getElementById('errMsg').classList.remove('show'); }
@@ -122,7 +123,7 @@ function phaseLabel(p){
 
 async function fetchStatus(){
   try{
-    const r=await fetch('/api/scraper/status?_='+Date.now(), NO_CACHE);
+    const r=await fetch('/api/scraper/status?_='+Date.now(), NO_CACHE_GET);
     if(!r.ok) return;
     const d=await r.json();
     const running=d.running;
@@ -157,7 +158,7 @@ async function fetchStatus(){
 
 async function fetchLogs(){
   try{
-    const r=await fetch('/api/scraper/logs?since='+logOffset+'&_='+Date.now(), NO_CACHE);
+    const r=await fetch('/api/scraper/logs?since='+logOffset+'&_='+Date.now(), NO_CACHE_GET);
     if(!r.ok) return;
     const d=await r.json();
     if(d.lines.length>0){
@@ -174,7 +175,7 @@ async function startScraper(){
   logOffset=0;
   startTime=Date.now();
   try{
-    const r=await fetch('/api/scraper/start',{ method:'POST', ...NO_CACHE });
+    const r=await fetch('/api/scraper/start', POST_OPTS);
     const d=await r.json();
     if(!r.ok){ showErr('خطأ: '+(d.error||r.status)); document.getElementById('startBtn').disabled=false; return; }
     startPolling();
@@ -186,7 +187,7 @@ async function startScraper(){
 
 async function stopScraper(){
   try{
-    await fetch('/api/scraper/stop',{ method:'POST', ...NO_CACHE });
+    await fetch('/api/scraper/stop', POST_OPTS);
   }catch(e){}
 }
 
