@@ -262,8 +262,8 @@ def run_yp_scraper(
                         f.cancel()
                     break
 
-            # تقرير تقدم كل 1000 طلب
-            if processed % 1000 == 0:
+            # تقرير تقدم كل 200 طلب
+            if processed % 200 == 0:
                 elapsed = time.time() - start_t
                 rate = processed / elapsed if elapsed > 0 else 0
                 print(f"  ⏳ {len(companies):4d} شركة | فحص {processed:,} | {rate:.1f} req/s | محجوب: {_blocked_count}")

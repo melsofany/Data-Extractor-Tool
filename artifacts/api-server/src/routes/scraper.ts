@@ -49,20 +49,22 @@ async function outputFileExists() {
 
 function parseStats(lines: string[]) {
   const stats = { companiesFound: 0, idsProcessed: 0, speed: 0, phase: "idle" as string };
+  let statsFound = false;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i] ?? "";
-    if (!stats.companiesFound) {
+    if (!statsFound) {
       const m = line.match(/(\d+)\s+شركة\s*\|\s*فحص\s*([\d,]+)\s*\|\s*([\d.]+)\s*req\/s/);
       if (m) {
+        statsFound = true;
         stats.companiesFound = parseInt(m[1] ?? "0");
         stats.idsProcessed   = parseInt((m[2] ?? "0").replace(/,/g, ""));
         stats.speed          = parseFloat(m[3] ?? "0");
       }
     }
-    if (line.includes("YellowPages")) stats.phase = "yellowpages";
-    if (line.includes("Facebook"))    stats.phase = "facebook";
+    if (line.includes("🟡 YellowPages"))  stats.phase = "yellowpages";
+    if (line.includes("🔵 Facebook"))     stats.phase = "facebook";
     if (line.includes("الملف النهائي")) stats.phase = "done";
-    if (stats.companiesFound && stats.phase !== "idle") break;
+    if (statsFound && stats.phase !== "idle") break;
   }
   return stats;
 }
