@@ -185,19 +185,25 @@ function connectWS(){
   };
 }
 
-function startScraper(){
+async function startScraper(){
   hideErr();
   document.getElementById('startBtn').disabled=true;
   document.getElementById('logBox').innerHTML='';
   logOffset=0;
   startTime=Date.now();
-  if(!wsReady){ showErr('جاري الاتصال... جرّب مرة أخرى'); document.getElementById('startBtn').disabled=false; return; }
-  ws.send(JSON.stringify({cmd:'go'}));
+  // تحديث فوري للواجهة قبل انتظار الاستجابة
+  document.getElementById('badge').className='badge running';
+  document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
+  try{
+    const r=await fetch('/api/scraper/status?set=1&_='+Date.now(),{cache:'no-store'});
+    const d=await r.json();
+    if(!r.ok||d.error){ showErr(d.error||'حدث خطأ'); document.getElementById('startBtn').disabled=false; return; }
+  }catch(e){ showErr('تعذّر الاتصال بالسيرفر'); document.getElementById('startBtn').disabled=false; return; }
   startPolling();
 }
 
-function stopScraper(){
-  if(wsReady) ws.send(JSON.stringify({cmd:'off'}));
+async function stopScraper(){
+  await fetch('/api/scraper/status?set=0&_='+Date.now(),{cache:'no-store'}).catch(()=>{});
 }
 
 function startPolling(){
