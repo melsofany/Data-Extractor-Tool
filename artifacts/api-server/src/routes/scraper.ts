@@ -95,9 +95,9 @@ router.post("/scraper/start", (_req, res) => {
   finishedAt = null;
   exitCode = null;
 
-  scraperProcess = spawn("python3", [SCRIPT_PATH], {
+  scraperProcess = spawn("python3", ["-u", SCRIPT_PATH], {
     cwd: "/home/runner/workspace",
-    env: { ...process.env },
+    env: { ...process.env, PYTHONUNBUFFERED: "1" },
   });
 
   scraperProcess.stdout?.on("data", (chunk: Buffer) => {

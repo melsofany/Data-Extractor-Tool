@@ -18,22 +18,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Egypt Scraper"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Start application"
-
-[[workflows.workflow]]
-name = "Egypt Scraper"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace && python3 scripts/scraper/egypt_companies_scraper.py 2>&1 | tee /tmp/scraper_run.log"
 
 [[workflows.workflow]]
 name = "Start application"
