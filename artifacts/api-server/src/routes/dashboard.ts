@@ -191,11 +191,10 @@ async function startScraper(){
   document.getElementById('logBox').innerHTML='';
   logOffset=0;
   startTime=Date.now();
-  // تحديث فوري للواجهة قبل انتظار الاستجابة
   document.getElementById('badge').className='badge running';
   document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
   try{
-    const r=await fetch('/api/scraper/status?set=1&_='+Date.now(),{cache:'no-store'});
+    const r=await fetch('/api/scraper/start',{method:'POST',cache:'no-store'});
     const d=await r.json();
     if(!r.ok||d.error){ showErr(d.error||'حدث خطأ'); document.getElementById('startBtn').disabled=false; return; }
   }catch(e){ showErr('تعذّر الاتصال بالسيرفر'); document.getElementById('startBtn').disabled=false; return; }
@@ -203,7 +202,7 @@ async function startScraper(){
 }
 
 async function stopScraper(){
-  await fetch('/api/scraper/status?set=0&_='+Date.now(),{cache:'no-store'}).catch(()=>{});
+  await fetch('/api/scraper/stop',{method:'POST',cache:'no-store'}).catch(()=>{});
 }
 
 function startPolling(){

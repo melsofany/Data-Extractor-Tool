@@ -141,18 +141,29 @@ export async function doStop(): Promise<{ ok: boolean; error?: string }> {
   return { ok: true };
 }
 
-// ─── Status (also handles start/stop via ?set=1 / ?set=0) ────────────────────
-router.get("/scraper/status", async (req, res) => {
-  const set = req.query["set"];
-
-  if (set === "1") {
+// ─── Start ────────────────────────────────────────────────────────────────────
+router.post("/scraper/start", async (_req, res) => {
+  try {
     const result = await doStart();
     if (!result.ok) { res.status(409).json({ error: result.error }); return; }
-  } else if (set === "0") {
-    const result = await doStop();
-    if (!result.ok) { res.status(409).json({ error: result.error }); return; }
+    res.json({ ok: true, pid: result.pid });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
   }
+});
 
+// ─── Stop ─────────────────────────────────────────────────────────────────────
+router.post("/scraper/stop", async (_req, res) => {
+  try {
+    const result = await doStop();
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ─── Status ───────────────────────────────────────────────────────────────────
+router.get("/scraper/status", async (_req, res) => {
   const running   = await isRunning();
   const lines     = await readLogLines();
   const stats     = parseStats(lines);
