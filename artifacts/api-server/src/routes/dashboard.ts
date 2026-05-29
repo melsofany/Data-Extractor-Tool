@@ -185,6 +185,30 @@ function connectWS(){
   };
 }
 
+function sendCmd(cmd){
+  return new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(new Error('timeout')),8000);
+    // إذا الاتصال مفتوح استخدمه، وإلا افتح اتصالاً مؤقتاً
+    const send=(socket)=>{
+      const onMsg=(e)=>{
+        clearTimeout(timeout);
+        socket.removeEventListener('message',onMsg);
+        try{ resolve(JSON.parse(e.data)); }catch{ resolve({ok:true}); }
+      };
+      socket.addEventListener('message',onMsg);
+      socket.send(JSON.stringify({cmd}));
+    };
+    if(ws && ws.readyState===WebSocket.OPEN){
+      send(ws);
+    } else {
+      const proto=location.protocol==='https:'?'wss:':'ws:';
+      const tmp=new WebSocket(proto+'//'+location.host);
+      tmp.onopen=()=>send(tmp);
+      tmp.onerror=()=>{ clearTimeout(timeout); reject(new Error('WS error')); };
+    }
+  });
+}
+
 async function startScraper(){
   hideErr();
   document.getElementById('startBtn').disabled=true;
@@ -194,15 +218,14 @@ async function startScraper(){
   document.getElementById('badge').className='badge running';
   document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
   try{
-    const r=await fetch('/api/scraper/status?q=1&_='+Date.now());
-    const d=await r.json();
-    if(!r.ok||d.error){ showErr(d.error||'حدث خطأ'); document.getElementById('startBtn').disabled=false; return; }
+    const d=await sendCmd('go');
+    if(d.ok===false&&d.error){ showErr(d.error); document.getElementById('startBtn').disabled=false; return; }
   }catch(e){ showErr('خطأ: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; return; }
   startPolling();
 }
 
 async function stopScraper(){
-  await fetch('/api/scraper/status?q=0&_='+Date.now()).catch(()=>{});
+  try{ await sendCmd('off'); }catch{ /* ignore */ }
 }
 
 function startPolling(){
