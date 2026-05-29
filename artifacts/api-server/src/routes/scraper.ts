@@ -77,11 +77,24 @@ async function readLogLines(): Promise<string[]> {
 }
 
 export async function doStart(): Promise<{ ok: boolean; error?: string; pid?: number }> {
-  // إذا كان شغّالاً، أوقفه أولاً ثم ابدأ من جديد
-  if (await isRunning()) {
-    await doStop();
-    await new Promise((r) => setTimeout(r, 500));
+  // إذا كان شغّالاً، اقتله مباشرة بدون setTimeout حتى لا يقتل السكريبت الجديد
+  if (scraperProcess && scraperProcess.exitCode === null) {
+    scraperProcess.kill("SIGKILL");
+    scraperProcess = null;
+    await new Promise((r) => setTimeout(r, 300));
+  } else {
+    try {
+      const pid = parseInt((await readFile(PID_FILE, "utf8")).trim());
+      if (pid) {
+        const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
+        if (cmdline.includes("egypt_companies_scraper")) {
+          process.kill(pid, "SIGKILL");
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      }
+    } catch { /* no old process */ }
   }
+  try { await writeFile(PID_FILE, "", "utf8"); } catch { /* ignore */ }
 
   try { await truncate(LOG_FILE, 0); } catch { /* first run */ }
   try { await writeFile(LOG_FILE, "", "utf8"); } catch { /* ignore */ }
