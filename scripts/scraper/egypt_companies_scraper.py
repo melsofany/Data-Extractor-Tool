@@ -265,10 +265,10 @@ def matches_governorate(address: str | None) -> bool:
 
 
 def matches_category(cat: str | None) -> bool:
-    if cat is None:
-        return False
     if SELECTED_CATS is None:
-        return True
+        return True  # no filter → accept everything including uncategorized
+    if cat is None:
+        return False  # filter is active → reject uncategorized
     return cat in SELECTED_CATS
 
 
