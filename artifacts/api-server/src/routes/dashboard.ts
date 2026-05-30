@@ -53,9 +53,7 @@ async function renderPage(running: boolean): Promise<string> {
   const badgeText  = running ? '<span class="dot"></span> جاري التشغيل' :
                      (state.exitCode === 0 && state.finishedAt ? "✅ اكتمل" : "⬤ متوقف");
 
-  const metaRefresh = running
-    ? `<meta http-equiv="refresh" content="3">`
-    : "";
+  const metaRefresh = "";
 
   const dlBtn = hasOut
     ? `<a class="dl-btn show" href="/api/scraper/download" download="Egypt_Companies.xlsx">⬇ تحميل النتائج</a>`
@@ -112,7 +110,9 @@ ${metaRefresh}
   .dl-btn.show{display:inline-block}
   .dl-btn:hover{background:#0284c7}
   .time-info{font-size:.78rem;color:#64748b;margin-top:8px;text-align:center}
-  .refresh-note{font-size:.72rem;color:#334155;text-align:center;margin-top:4px}
+  .refresh-note{font-size:.72rem;color:#64748b;text-align:center;margin-top:6px}
+  .btn-refresh{padding:6px 16px;border-radius:8px;background:#1e293b;color:#94a3b8;border:1px solid #334155;font-size:.8rem;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn-refresh:hover{border-color:#38bdf8;color:#38bdf8}
 </style>
 </head>
 <body>
@@ -145,10 +145,14 @@ ${metaRefresh}
 ${logHtml || '<div class="line info">في انتظار بدء التشغيل...</div>'}
 </div>
 ${timeInfo ? `<div class="time-info">${timeInfo}</div>` : ""}
-${running ? `<div class="refresh-note">🔄 الصفحة تتحدث تلقائياً كل 3 ثواني</div>` : ""}
+<div class="refresh-note" style="margin-top:12px">
+  <a class="btn-refresh" href="/">🔄 تحديث الصفحة</a>
+  ${running ? `&nbsp;&nbsp;<span style="color:#475569;font-size:.72rem">يعمل ← اضغط تحديث لرؤية التقدم</span>` : ""}
+</div>
 
 <script>
 document.getElementById('logBox').scrollTop = document.getElementById('logBox').scrollHeight;
+${running ? `setTimeout(function(){ try{ window.location.href='/'; }catch(e){ window.location.reload(); } }, 3000);` : ""}
 </script>
 </body>
 </html>`;
@@ -163,11 +167,13 @@ router.get("/", async (req, res) => {
 
   if (action === "start") {
     await writeFile("/tmp/scraper_config.json", JSON.stringify({ categories: null, governorates: null }), "utf8").catch(() => {});
-    doStart().catch(() => {});
-    await new Promise(r => setTimeout(r, 400));
+    await doStart().catch(() => {});
+    res.redirect(302, "/");
+    return;
   } else if (action === "stop") {
     await doStop().catch(() => {});
-    await new Promise(r => setTimeout(r, 300));
+    res.redirect(302, "/");
+    return;
   }
 
   const running = await isRunning();
