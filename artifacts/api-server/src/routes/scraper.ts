@@ -53,7 +53,7 @@ function parseStats(lines: string[]) {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i] ?? "";
     if (!statsFound) {
-      const m = line.match(/(\d+)\s+شركة\s*\|\s*فحص\s*([\d,]+)\s*\|\s*([\d.]+)\s*req\/s/);
+      const m = line.match(/(\d+)\s+شركة[^|]*\|\s*فحص\s*([\d,]+)\s*\|\s*([\d.]+)\s*req\/s/);
       if (m) {
         statsFound = true;
         stats.companiesFound = parseInt(m[1] ?? "0");
