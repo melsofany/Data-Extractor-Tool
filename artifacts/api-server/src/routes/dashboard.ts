@@ -285,7 +285,11 @@ function phaseLabel(p){
 
 async function fetchStatus(){
   try{
-    const r=await fetch('/api/scraper/status?_='+Date.now(), NC);
+    const url=window.__pendingStart
+      ?'/api/scraper/status?_=s'+window.__pendingStart.c+'g'+window.__pendingStart.v
+      :'/api/scraper/status?_='+Date.now();
+    window.__pendingStart=null;
+    const r=await fetch(url, NC);
     if(!r.ok) return;
     const d=await r.json();
     const running=d.running;
@@ -332,26 +336,17 @@ async function fetchLogs(){
 
 async function startScraper(){
   hideErr();
-  if(polling){ clearInterval(polling); polling=null; }
   document.getElementById('startBtn').disabled=true;
   document.getElementById('logBox').innerHTML='';
   logOffset=0;
   startTime=Date.now();
   document.getElementById('badge').className='badge running';
   document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
-  try{
-    const config=collectConfig();
-    // bitmask — URL قصير جداً بدل base64 طويل
-    const catBits=CATEGORIES.reduce((b,c,i)=>b|((!config.categories||config.categories.includes(c.id))?(1<<i):0),0);
-    const govBits=GOVERNORATES.reduce((b,g,i)=>b|((!config.governorates||config.governorates.includes(g.id))?(1<<i):0),0);
-    const r=await fetch('/api/scraper/status?_=s'+catBits+'g'+govBits,{cache:'no-store'});
-    const text=await r.text();
-    let d={ok:r.ok};
-    try{ if(text) d=JSON.parse(text); }catch{ /* ignore parse error */ }
-    if(!r.ok||d.ok===false){ showErr(d.error||'خطأ في البدء ('+r.status+')'); document.getElementById('startBtn').disabled=false; startPolling(); return; }
-  }catch(e){ showErr('خطأ في الاتصال: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; startPolling(); return; }
-  logOffset=0;
-  document.getElementById('logBox').innerHTML='';
+  const config=collectConfig();
+  const catBits=CATEGORIES.reduce((b,c,i)=>b|((!config.categories||config.categories.includes(c.id))?(1<<i):0),0);
+  const govBits=GOVERNORATES.reduce((b,g,i)=>b|((!config.governorates||config.governorates.includes(g.id))?(1<<i):0),0);
+  // نبعت أمر التشغيل عن طريق الـ polling interval — مش عن طريق fetch منفصل
+  window.__pendingStart={c:catBits,v:govBits};
   startPolling();
 }
 
