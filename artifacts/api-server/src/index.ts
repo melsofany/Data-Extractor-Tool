@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { writeFileSync } from "node:fs";
 import { WebSocketServer } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
@@ -23,8 +24,11 @@ const wss = new WebSocketServer({ server });
 wss.on("connection", (ws) => {
   ws.on("message", async (data) => {
     try {
-      const msg = JSON.parse(data.toString()) as { cmd?: string };
+      const msg = JSON.parse(data.toString()) as { cmd?: string; config?: unknown };
       if (msg.cmd === "go") {
+        if (msg.config) {
+          try { writeFileSync("/tmp/scraper_config.json", JSON.stringify(msg.config)); } catch { /* ignore */ }
+        }
         const result = await doStart();
         ws.send(JSON.stringify(result));
       } else if (msg.cmd === "off") {

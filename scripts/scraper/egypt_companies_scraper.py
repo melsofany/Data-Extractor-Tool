@@ -1,10 +1,12 @@
 """
-مستخرج بيانات شركات مصر — النسخة النهائية
-------------------------------------------------------
-المصادر:
-  1. yellowpages.com.eg — JSON-LD + تعداد IDs موازي
-  2. Facebook             — عبر Bing
-الشرط : كل شركة لازم يكون عندها إيميل أو واتساب (رقم موبايل مصري 01X)
+مستخرج بيانات شركات مصر — v2
+-----------------------------------------------
+الجديد:
+  - استخراج الإيميل من موقع الشركة الرسمي (أهم تحسين)
+  - 20 تصنيف بدلاً من 8
+  - فلترة بالمحافظات
+  - إعدادات من ملف config (categories + governorates)
+  - حفظ كل الشركات (بغض النظر عن الإيميل) مع عمود "حالة التواصل"
 """
 
 import requests
@@ -14,59 +16,239 @@ import re
 import json
 import time
 import random
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 OUTPUT_FILE = "Egypt_Companies_Real_Data.xlsx"
 BACKUP_FILE = "backup_temp.xlsx"
+CONFIG_FILE = "/tmp/scraper_config.json"
 
-# ===================== فئات مستهدفة =====================
+
+# ===================== تحميل الإعدادات =====================
+def _load_cfg():
+    try:
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+_CFG = _load_cfg()
+
+
+# ===================== التصنيفات الكاملة =====================
 CATEGORY_MAP = {
-    "fire-fighting":              "الصحة والسلامة ومقاومة الحريق",
-    "fire fighting":              "الصحة والسلامة ومقاومة الحريق",
-    "safety-equipment":           "الصحة والسلامة ومقاومة الحريق",
-    "safety equipment":           "الصحة والسلامة ومقاومة الحريق",
-    "health-safety":              "الصحة والسلامة ومقاومة الحريق",
-    "fire-alarm":                 "الصحة والسلامة ومقاومة الحريق",
-    "fire alarm":                 "الصحة والسلامة ومقاومة الحريق",
-    "electric-cables":            "الكهرباء والكابلات والأسلاك",
-    "electrical-cables":          "الكهرباء والكابلات والأسلاك",
-    "electrical-equipment":       "الكهرباء والكابلات والأسلاك",
-    "electrical-supplies":        "الكهرباء والكابلات والأسلاك",
-    "electrical-tools":           "الكهرباء والكابلات والأسلاك",
-    "electricity":                "الكهرباء والكابلات والأسلاك",
-    "wires":                      "الكهرباء والكابلات والأسلاك",
-    "cables":                     "الكهرباء والكابلات والأسلاك",
-    "mechanical":                 "الميكانيكا",
-    "mechanical-equipment":       "الميكانيكا",
-    "electronic":                 "الإلكترونيات",
-    "electronics":                "الإلكترونيات",
-    "cleaning-equipment":         "أدوات النظافة",
-    "cleaning-supplies":          "أدوات النظافة",
-    "cleaning-materials":         "أدوات النظافة",
-    "cleaning-services":          "أدوات النظافة",
-    "hotel-equipment":            "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
-    "kitchen-equipment":          "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
-    "catering-equipment":         "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
-    "restaurants-equipment":      "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
-    "restaurant-equipment":       "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
-    "office-furniture":           "الأثاث المكتبي",
-    "office-chairs":              "الأثاث المكتبي",
-    "furniture":                  "الأثاث المكتبي",
-    "information-technology":     "تكنولوجيا المعلومات (IT)",
-    "information technology":     "تكنولوجيا المعلومات (IT)",
-    "computers":                  "تكنولوجيا المعلومات (IT)",
-    "computer":                   "تكنولوجيا المعلومات (IT)",
-    "software":                   "تكنولوجيا المعلومات (IT)",
-    "it-solutions":               "تكنولوجيا المعلومات (IT)",
-    "networking":                 "تكنولوجيا المعلومات (IT)",
+    # ── الحريق والسلامة ──────────────────────────────────────
+    "fire-fighting":            "الصحة والسلامة ومقاومة الحريق",
+    "fire fighting":            "الصحة والسلامة ومقاومة الحريق",
+    "safety-equipment":         "الصحة والسلامة ومقاومة الحريق",
+    "safety equipment":         "الصحة والسلامة ومقاومة الحريق",
+    "health-safety":            "الصحة والسلامة ومقاومة الحريق",
+    "fire-alarm":               "الصحة والسلامة ومقاومة الحريق",
+    "fire alarm":               "الصحة والسلامة ومقاومة الحريق",
+    "firefighting":             "الصحة والسلامة ومقاومة الحريق",
+    "safety":                   "الصحة والسلامة ومقاومة الحريق",
+    # ── الكهرباء ─────────────────────────────────────────────
+    "electric-cables":          "الكهرباء والكابلات والأسلاك",
+    "electrical-cables":        "الكهرباء والكابلات والأسلاك",
+    "electrical-equipment":     "الكهرباء والكابلات والأسلاك",
+    "electrical-supplies":      "الكهرباء والكابلات والأسلاك",
+    "electrical-tools":         "الكهرباء والكابلات والأسلاك",
+    "electricity":              "الكهرباء والكابلات والأسلاك",
+    "wires":                    "الكهرباء والكابلات والأسلاك",
+    "cables":                   "الكهرباء والكابلات والأسلاك",
+    "electrical":               "الكهرباء والكابلات والأسلاك",
+    "switchgear":               "الكهرباء والكابلات والأسلاك",
+    # ── الميكانيكا ───────────────────────────────────────────
+    "mechanical":               "الميكانيكا",
+    "mechanical-equipment":     "الميكانيكا",
+    "machine-parts":            "الميكانيكا",
+    "machinery":                "الميكانيكا",
+    # ── الإلكترونيات ─────────────────────────────────────────
+    "electronic":               "الإلكترونيات",
+    "electronics":              "الإلكترونيات",
+    "consumer-electronics":     "الإلكترونيات",
+    # ── النظافة ──────────────────────────────────────────────
+    "cleaning-equipment":       "أدوات النظافة",
+    "cleaning-supplies":        "أدوات النظافة",
+    "cleaning-materials":       "أدوات النظافة",
+    "cleaning-services":        "أدوات النظافة",
+    "cleaning":                 "أدوات النظافة",
+    # ── مطابخ فندقية ─────────────────────────────────────────
+    "hotel-equipment":          "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
+    "kitchen-equipment":        "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
+    "catering-equipment":       "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
+    "restaurants-equipment":    "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
+    "restaurant-equipment":     "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
+    "catering":                 "معدات المطابخ الكبيرة الفندقية وقطع غيارها",
+    # ── الأثاث المكتبي ───────────────────────────────────────
+    "office-furniture":         "الأثاث المكتبي",
+    "office-chairs":            "الأثاث المكتبي",
+    "furniture":                "الأثاث المكتبي",
+    "office-supplies":          "الأثاث المكتبي",
+    # ── IT ───────────────────────────────────────────────────
+    "information-technology":   "تكنولوجيا المعلومات (IT)",
+    "information technology":   "تكنولوجيا المعلومات (IT)",
+    "computers":                "تكنولوجيا المعلومات (IT)",
+    "computer":                 "تكنولوجيا المعلومات (IT)",
+    "software":                 "تكنولوجيا المعلومات (IT)",
+    "it-solutions":             "تكنولوجيا المعلومات (IT)",
+    "networking":               "تكنولوجيا المعلومات (IT)",
+    "it":                       "تكنولوجيا المعلومات (IT)",
+    # ── مواد البناء ──────────────────────────────────────────
+    "construction":             "مواد البناء والمقاولات",
+    "building-materials":       "مواد البناء والمقاولات",
+    "contractors":              "مواد البناء والمقاولات",
+    "construction-materials":   "مواد البناء والمقاولات",
+    "cement":                   "مواد البناء والمقاولات",
+    "steel":                    "مواد البناء والمقاولات",
+    "iron-steel":               "مواد البناء والمقاولات",
+    "tiles":                    "مواد البناء والمقاولات",
+    "marble":                   "مواد البناء والمقاولات",
+    "paints":                   "مواد البناء والمقاولات",
+    # ── المعدات الطبية ───────────────────────────────────────
+    "medical-equipment":        "المعدات الطبية والصيدلانية",
+    "medical":                  "المعدات الطبية والصيدلانية",
+    "pharmaceutical":           "المعدات الطبية والصيدلانية",
+    "medical-supplies":         "المعدات الطبية والصيدلانية",
+    "hospital-equipment":       "المعدات الطبية والصيدلانية",
+    "medical-devices":          "المعدات الطبية والصيدلانية",
+    "pharmaceuticals":          "المعدات الطبية والصيدلانية",
+    # ── السيارات ─────────────────────────────────────────────
+    "automotive":               "السيارات وقطع الغيار",
+    "auto-parts":               "السيارات وقطع الغيار",
+    "car-parts":                "السيارات وقطع الغيار",
+    "spare-parts":              "السيارات وقطع الغيار",
+    "vehicles":                 "السيارات وقطع الغيار",
+    "car-accessories":          "السيارات وقطع الغيار",
+    # ── الأمن والمراقبة ──────────────────────────────────────
+    "security":                 "الأمن والحراسة وأنظمة المراقبة",
+    "security-systems":         "الأمن والحراسة وأنظمة المراقبة",
+    "cctv":                     "الأمن والحراسة وأنظمة المراقبة",
+    "surveillance":             "الأمن والحراسة وأنظمة المراقبة",
+    "alarm-systems":            "الأمن والحراسة وأنظمة المراقبة",
+    "access-control":           "الأمن والحراسة وأنظمة المراقبة",
+    "security-cameras":         "الأمن والحراسة وأنظمة المراقبة",
+    # ── التكييف والتبريد ──────────────────────────────────────
+    "air-conditioning":         "التكييف والتبريد",
+    "hvac":                     "التكييف والتبريد",
+    "cooling":                  "التكييف والتبريد",
+    "refrigeration":            "التكييف والتبريد",
+    "ac-units":                 "التكييف والتبريد",
+    # ── معالجة المياه ────────────────────────────────────────
+    "water-treatment":          "معالجة المياه والصرف الصحي",
+    "water-pumps":              "معالجة المياه والصرف الصحي",
+    "pumps":                    "معالجة المياه والصرف الصحي",
+    "water-systems":            "معالجة المياه والصرف الصحي",
+    "sewage":                   "معالجة المياه والصرف الصحي",
+    # ── الطباعة والإعلان ─────────────────────────────────────
+    "printing":                 "الطباعة والنشر والإعلان",
+    "advertising":              "الطباعة والنشر والإعلان",
+    "signage":                  "الطباعة والنشر والإعلان",
+    "publishing":               "الطباعة والنشر والإعلان",
+    "marketing":                "الطباعة والنشر والإعلان",
+    # ── الأغذية والمشروبات ───────────────────────────────────
+    "food":                     "الأغذية والمشروبات",
+    "food-industry":            "الأغذية والمشروبات",
+    "beverages":                "الأغذية والمشروبات",
+    "food-products":            "الأغذية والمشروبات",
+    "dairy":                    "الأغذية والمشروبات",
+    "bakery":                   "الأغذية والمشروبات",
+    # ── النسيج والملابس ──────────────────────────────────────
+    "textile":                  "النسيج والملابس",
+    "clothing":                 "النسيج والملابس",
+    "garments":                 "النسيج والملابس",
+    "fabrics":                  "النسيج والملابس",
+    "fashion":                  "النسيج والملابس",
+    # ── الشحن والنقل ─────────────────────────────────────────
+    "shipping":                 "الشحن والنقل واللوجستيات",
+    "logistics":                "الشحن والنقل واللوجستيات",
+    "freight":                  "الشحن والنقل واللوجستيات",
+    "transportation":           "الشحن والنقل واللوجستيات",
+    "cargo":                    "الشحن والنقل واللوجستيات",
+    "moving":                   "الشحن والنقل واللوجستيات",
+    # ── الزراعة ──────────────────────────────────────────────
+    "agriculture":              "الزراعة والري",
+    "agricultural-equipment":   "الزراعة والري",
+    "irrigation":               "الزراعة والري",
+    "seeds":                    "الزراعة والري",
+    "fertilizers":              "الزراعة والري",
+    # ── العقارات ─────────────────────────────────────────────
+    "real-estate":              "العقارات والمقاولات",
+    "property":                 "العقارات والمقاولات",
+    "real estate":              "العقارات والمقاولات",
 }
 
-MOBILE_RE  = re.compile(r'(?<!\d)(01[0-2,5]\d{8})(?!\d)')
-EMAIL_RE   = re.compile(r'[\w.\-]+@[\w.\-]+\.\w{2,6}')
-WA_RE      = re.compile(r'wa\.me/(\d{10,15})', re.I)
-BAD_EMAILS = ('example', 'yourmail', 'test@', 'noreply', 'sentry',
-              'yellowpages', 'ypbeta', '@yellow.com', 'support@', 'admin@')
+# التصنيفات العربية المختارة (None = كل التصنيفات)
+_sel_cats_raw = _CFG.get("categories")
+SELECTED_CATS: set | None = set(_sel_cats_raw) if _sel_cats_raw else None
 
+
+# ===================== المحافظات =====================
+GOVERNORATE_KEYWORDS: dict[str, list[str]] = {
+    "cairo":         ["cairo", "القاهرة", "قاهرة", "maadi", "heliopolis", "nasr city", "zamalek", "mohandeseen", "downtown cairo"],
+    "alexandria":    ["alexandria", "الإسكندرية", "اسكندرية", "alex"],
+    "giza":          ["giza", "الجيزة", "جيزة", "6th october", "sheikh zayed", "october city", "12 october"],
+    "sharkia":       ["sharkia", "الشرقية", "شرقية", "zagazig", "10th ramadan"],
+    "dakahlia":      ["dakahlia", "الدقهلية", "دقهلية", "mansoura"],
+    "beheira":       ["beheira", "البحيرة", "بحيرة", "damanhour"],
+    "gharbia":       ["gharbia", "الغربية", "غربية", "tanta"],
+    "menoufia":      ["menoufia", "المنوفية", "منوفية", "shibin"],
+    "qalyubia":      ["qalyubia", "القليوبية", "قليوبية", "banha", "obour", "10th ramadan"],
+    "kafr-elsheikh": ["kafr el-sheikh", "kafr elsheikh", "كفر الشيخ", "kafr"],
+    "damietta":      ["damietta", "دمياط"],
+    "ismailia":      ["ismailia", "الإسماعيلية", "اسماعيلية"],
+    "port-said":     ["port said", "بورسعيد", "port saeed"],
+    "suez":          ["suez", "السويس"],
+    "north-sinai":   ["north sinai", "شمال سيناء", "arish", "العريش"],
+    "south-sinai":   ["south sinai", "جنوب سيناء", "sharm", "nuweiba"],
+    "beni-suef":     ["beni suef", "بني سويف", "benisuef"],
+    "faiyum":        ["faiyum", "fayoum", "الفيوم"],
+    "minya":         ["minya", "المنيا", "minia"],
+    "asyut":         ["asyut", "أسيوط", "assiut", "assuit"],
+    "sohag":         ["sohag", "سوهاج"],
+    "qena":          ["qena", "قنا"],
+    "luxor":         ["luxor", "الأقصر"],
+    "aswan":         ["aswan", "أسوان"],
+    "red-sea":       ["red sea", "البحر الأحمر", "hurghada", "الغردقة", "safaga"],
+    "matrouh":       ["matrouh", "مطروح", "marsa matrouh", "سيوة"],
+    "new-valley":    ["new valley", "الوادي الجديد", "kharga"],
+}
+
+_sel_govs_raw = _CFG.get("governorates")
+SELECTED_GOVS: list | None = _sel_govs_raw if _sel_govs_raw else None  # None = all
+
+
+def matches_governorate(address: str | None) -> bool:
+    if SELECTED_GOVS is None:
+        return True
+    if not address:
+        return True  # لا نستطيع التحقق → نشملها
+    addr_lower = address.lower()
+    for gov in SELECTED_GOVS:
+        for kw in GOVERNORATE_KEYWORDS.get(gov, [gov]):
+            if kw.lower() in addr_lower:
+                return True
+    return False
+
+
+def matches_category(cat: str | None) -> bool:
+    if cat is None:
+        return False
+    if SELECTED_CATS is None:
+        return True
+    return cat in SELECTED_CATS
+
+
+# ===================== الأنماط والثوابت =====================
+MOBILE_RE  = re.compile(r'(?<!\d)(01[0-2,5]\d{8})(?!\d)')
+EMAIL_RE   = re.compile(r'[\w.\-+]+@[\w.\-]+\.[a-z]{2,6}', re.I)
+WA_RE      = re.compile(r'wa\.me/(\d{10,15})', re.I)
+BAD_EMAILS = (
+    'example', 'yourmail', 'test@', 'noreply', 'no-reply',
+    'sentry', 'yellowpages', 'ypbeta', '@yellow.com',
+    'support@', 'admin@', 'info@yellowpages', 'postmaster',
+    'donotreply', 'webmaster@', 'abuse@',
+)
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -78,18 +260,27 @@ USER_AGENTS = [
 
 
 def hdrs():
-    return {"User-Agent": random.choice(USER_AGENTS),
-            "Accept": "text/html,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.8,ar;q=0.5"}
+    return {
+        "User-Agent":      random.choice(USER_AGENTS),
+        "Accept":          "text/html,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.8,ar;q=0.5",
+    }
 
 
 def clean_email(em: str | None) -> str | None:
     if not em:
         return None
-    em = em.strip().lower()
-    if "@" not in em or len(em) < 6:
+    em = em.strip().lower().rstrip(".,;")
+    if "@" not in em or len(em) < 6 or len(em) > 80:
         return None
     if any(b in em for b in BAD_EMAILS):
+        return None
+    # تجنب الإيميلات ذات التمديدات المشبوهة
+    parts = em.split("@")
+    if len(parts) != 2:
+        return None
+    domain = parts[1]
+    if not re.match(r'^[\w.\-]+\.[a-z]{2,6}$', domain, re.I):
         return None
     return em
 
@@ -107,11 +298,38 @@ def normalize_phone(ph: str | None) -> str | None:
     return digits if len(digits) >= 7 else None
 
 
-# ===================== YellowPages =====================
+# ===================== استخراج الإيميل من موقع الشركة =====================
+def scrape_website_for_email(url: str) -> str | None:
+    """يزور الموقع الرسمي للشركة ويبحث عن إيميل"""
+    try:
+        r = requests.get(url, headers=hdrs(), timeout=12,
+                         allow_redirects=True, stream=False)
+        if r.status_code != 200:
+            return None
+        text = r.text
+
+        # 1) mailto: الأكثر موثوقية
+        for m in re.finditer(r'mailto:([^\s"\'<>?&]{4,80})', text, re.I):
+            cand = clean_email(m.group(1))
+            if cand:
+                return cand
+
+        # 2) بحث في النص الكامل بعد تحليل HTML
+        soup = BeautifulSoup(text, "html.parser")
+        page_text = soup.get_text(separator=" ")
+        for m in EMAIL_RE.finditer(page_text):
+            cand = clean_email(m.group(0))
+            if cand:
+                return cand
+
+    except Exception:
+        pass
+    return None
+
+
+# ===================== YellowPages: استخراج بيانات صفحة =====================
 def extract_from_page(html: str, cid: int) -> dict | None:
-    """استخرج البيانات من HTML صفحة بروفايل YP"""
-    # — من JSON-LD —
-    name = phone = email = address = category = None
+    name = phone = email = address = category = website_url = None
 
     jsonld_blocks = re.findall(
         r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
@@ -123,12 +341,11 @@ def extract_from_page(html: str, cid: int) -> dict | None:
         except Exception:
             continue
 
-        # breadcrumb → فئة
+        # breadcrumb → تصنيف
         if d.get("@type") == "WebPage":
-            bc = d.get("breadcrumb", "")
-            bc_lower = bc.lower()
+            bc = d.get("breadcrumb", "").lower()
             for key, arabic in CATEGORY_MAP.items():
-                if key in bc_lower:
+                if key in bc:
                     category = arabic
                     break
 
@@ -144,7 +361,12 @@ def extract_from_page(html: str, cid: int) -> dict | None:
             city    = addr.get("addressLocality", "").strip()
             address = ", ".join(filter(None, [street, city])) or None
 
-    # إن لم تُعثر على الفئة من breadcrumb WebPage → نبحث في روابط /category/
+            # موقع الشركة الرسمي
+            candidate = d.get("url") or d.get("sameAs") or ""
+            if candidate and "yellowpages.com.eg" not in candidate and candidate.startswith("http"):
+                website_url = candidate
+
+    # تصنيف من روابط /category/ إن لم يُوجد
     if not category:
         for m in re.finditer(r'/category/([a-z0-9\-]+)', html):
             slug = m.group(1).lower()
@@ -155,10 +377,15 @@ def extract_from_page(html: str, cid: int) -> dict | None:
             if category:
                 break
 
-    if not category:
+    # فلترة التصنيف
+    if not matches_category(category):
         return None
 
-    # — بحث إضافي عن إيميل في mailto: —
+    # فلترة المحافظة
+    if not matches_governorate(address):
+        return None
+
+    # بحث إضافي عن إيميل بـ mailto:
     if not email:
         for m in re.finditer(r'mailto:([^\s"\'<>?&]{4,80})', html, re.I):
             cand = clean_email(m.group(1))
@@ -166,21 +393,23 @@ def extract_from_page(html: str, cid: int) -> dict | None:
                 email = cand
                 break
 
-    # — بحث عن WhatsApp مباشر (wa.me/01XXXXXXXXX) —
+    # ★ استخراج الإيميل من موقع الشركة (أهم تحسين)
+    if not email and website_url:
+        email = scrape_website_for_email(website_url)
+
+    # WhatsApp
     whatsapp = None
     for m in WA_RE.finditer(html):
         num = m.group(1)
-        if len(num) >= 10 and "?" not in num:
+        if len(num) >= 10:
             norm = normalize_phone(num)
             if norm:
                 whatsapp = norm
                 break
-
-    # — إذا الرقم موبايل مصري → يصلح WhatsApp —
     if not whatsapp and phone and MOBILE_RE.match(phone):
         whatsapp = phone
 
-    # الاسم من <h1> إن لم يُوجد في JSON-LD
+    # الاسم من <h1>
     if not name:
         h1_m = re.search(r'<h1[^>]*>([^<]{3,120})</h1>', html, re.I)
         if h1_m:
@@ -189,26 +418,38 @@ def extract_from_page(html: str, cid: int) -> dict | None:
     if not name:
         return None
 
+    # حالة التواصل
+    if email:
+        contact_status = "✅ إيميل + " + ("واتساب" if whatsapp else "هاتف")
+    elif whatsapp:
+        contact_status = "📱 واتساب فقط"
+    elif phone:
+        contact_status = "☎ هاتف فقط"
+    else:
+        contact_status = "—"
+
     return {
-        "Company Name": name,
-        "Phone":        phone,
-        "WhatsApp":     whatsapp,
-        "Email":        email,
-        "Address":      address,
-        "Category":     category,
-        "Source":       "YellowPages",
-        "URL":          f"https://www.yellowpages.com.eg/en/profile/x/{cid}",
+        "Company Name":    name,
+        "Phone":           phone,
+        "WhatsApp":        whatsapp,
+        "Email":           email,
+        "Address":         address,
+        "Website":         website_url,
+        "Category":        category,
+        "Contact Status":  contact_status,
+        "Source":          "YellowPages",
+        "URL":             f"https://www.yellowpages.com.eg/en/profile/x/{cid}",
     }
 
 
-_blocked_count = 0  # عداد مشترك لطلبات 403
+_blocked_count = 0
 
 
 def scrape_yp_id(cid: int) -> dict | None:
     global _blocked_count
     url = f"https://www.yellowpages.com.eg/en/profile/x/{cid}"
     try:
-        r = requests.get(url, headers=hdrs(), timeout=10)
+        r = requests.get(url, headers=hdrs(), timeout=12)
         if r.status_code == 403:
             _blocked_count += 1
             return None
@@ -228,17 +469,23 @@ def run_yp_scraper(
     id_end: int = 720_000,
     sample_size: int | None = None,
 ) -> list[dict]:
-    """يجمع شركات من YP بالتوازي"""
     global _blocked_count
     _blocked_count = 0
 
+    # تطبيق إعدادات Config
+    workers     = _CFG.get("workers",   workers)
+    sample_size = _CFG.get("id_count",  sample_size or 60_000)
+
     all_ids = list(range(id_start, id_end + 1))
     random.shuffle(all_ids)
-    if sample_size:
-        all_ids = all_ids[:sample_size]
+    all_ids = all_ids[:sample_size]
 
     print(f"  🔢 IDs للفحص : {len(all_ids):,}")
     print(f"  ⚡ Threads    : {workers}")
+    if SELECTED_GOVS:
+        print(f"  📍 المحافظات  : {', '.join(SELECTED_GOVS)}")
+    if SELECTED_CATS:
+        print(f"  🏷️ التصنيفات  : {len(SELECTED_CATS)} تصنيف")
 
     companies: list[dict] = []
     processed = 0
@@ -252,35 +499,38 @@ def run_yp_scraper(
             res = fut.result()
             if res:
                 companies.append(res)
+                em_flag = "📧" if res.get("Email") else "  "
                 if len(companies) % 50 == 0:
                     elapsed = time.time() - start_t
                     rate = processed / elapsed if elapsed > 0 else 0
                     print(f"  ✅ {len(companies):4d} شركة | فحص {processed:,} | {rate:.1f} req/s")
                     pd.DataFrame(companies).to_excel(BACKUP_FILE, index=False)
-                if len(companies) >= max_companies:
-                    for f in futures:
-                        f.cancel()
-                    break
 
-            # تقرير تقدم كل 200 طلب
             if processed % 200 == 0:
                 elapsed = time.time() - start_t
                 rate = processed / elapsed if elapsed > 0 else 0
-                print(f"  ⏳ {len(companies):4d} شركة | فحص {processed:,} | {rate:.1f} req/s | محجوب: {_blocked_count}")
+                with_email = sum(1 for c in companies if c.get("Email"))
+                print(f"  ⏳ {len(companies):4d} شركة ({with_email} بإيميل) | فحص {processed:,} | {rate:.1f} req/s | محجوب: {_blocked_count}")
 
-            # تحذير مبكر إذا كان الموقع يحجب الطلبات
+            if len(companies) >= max_companies:
+                for f in futures:
+                    f.cancel()
+                break
+
             if _blocked_count >= 50 and _blocked_count != last_block_warn and _blocked_count % 50 == 0:
                 last_block_warn = _blocked_count
                 block_pct = int(_blocked_count / max(processed, 1) * 100)
-                print(f"  ⚠️ [ERR] الموقع يحجب الطلبات — {_blocked_count} طلب محجوب ({block_pct}% من الإجمالي)")
+                print(f"  ⚠️ [ERR] {_blocked_count} طلب محجوب ({block_pct}%)")
                 if block_pct >= 80 and processed >= 200:
-                    print(f"  ❌ [ERR] الموقع يحجب أكثر من 80% من الطلبات — YellowPages يمنع السكريبت حالياً")
+                    print("  ❌ [ERR] الموقع يحجب أكثر من 80% — إيقاف YellowPages")
                     for f in futures:
                         f.cancel()
                     break
 
     elapsed = time.time() - start_t
-    print(f"\n  📌 فحصنا {processed:,} ID خلال {elapsed:.0f}ث → {len(companies)} شركة في الفئات")
+    with_email = sum(1 for c in companies if c.get("Email"))
+    print(f"\n  📌 فحصنا {processed:,} ID خلال {elapsed:.0f}ث → {len(companies)} شركة")
+    print(f"  📧 شركات بإيميل: {with_email}")
     if _blocked_count > 0:
         print(f"  ⚠️ طلبات محجوبة (403): {_blocked_count}")
     return companies
@@ -293,45 +543,84 @@ FB_QUERIES: dict[str, list[str]] = {
         'site:facebook.com "fire fighting equipment" egypt',
         'site:facebook.com "أجهزة حريق" مصر',
         'site:facebook.com "fire alarm" egypt company',
-        'site:facebook.com "سلامة وحريق" مصر',
     ],
     "الكهرباء والكابلات والأسلاك": [
         'site:facebook.com "كابلات كهربائية" مصر',
         'site:facebook.com "electrical cables" egypt',
         'site:facebook.com "تجهيزات كهربائية" مصر',
-        'site:facebook.com "electrical supplies" egypt',
     ],
     "الميكانيكا": [
-        'site:facebook.com "ميكانيكا" مصر هاتف',
-        'site:facebook.com "mechanical parts" egypt',
         'site:facebook.com "قطع غيار ميكانيكية" مصر',
+        'site:facebook.com "mechanical parts" egypt',
     ],
     "الإلكترونيات": [
         'site:facebook.com "إلكترونيات" مصر هاتف',
         'site:facebook.com "electronics company" egypt',
-        'site:facebook.com "أجهزة إلكترونية" مصر',
     ],
     "أدوات النظافة": [
         'site:facebook.com "معدات تنظيف" مصر',
         'site:facebook.com "cleaning equipment" egypt',
-        'site:facebook.com "مستلزمات نظافة" مصر',
     ],
     "معدات المطابخ الكبيرة الفندقية وقطع غيارها": [
         'site:facebook.com "معدات مطابخ فندقية" مصر',
         'site:facebook.com "hotel kitchen equipment" egypt',
         'site:facebook.com "تجهيزات مطاعم" مصر',
-        'site:facebook.com "catering equipment" egypt',
     ],
     "الأثاث المكتبي": [
         'site:facebook.com "أثاث مكتبي" مصر',
         'site:facebook.com "office furniture" egypt',
-        'site:facebook.com "furniture company" egypt',
     ],
     "تكنولوجيا المعلومات (IT)": [
-        'site:facebook.com "تكنولوجيا معلومات" مصر',
         'site:facebook.com "IT company" egypt',
         'site:facebook.com "software company" egypt',
         'site:facebook.com "حلول تقنية" مصر',
+    ],
+    "مواد البناء والمقاولات": [
+        'site:facebook.com "مواد بناء" مصر',
+        'site:facebook.com "building materials" egypt',
+        'site:facebook.com "مقاولات" مصر هاتف',
+    ],
+    "المعدات الطبية والصيدلانية": [
+        'site:facebook.com "معدات طبية" مصر',
+        'site:facebook.com "medical equipment" egypt',
+        'site:facebook.com "أجهزة طبية" مصر',
+    ],
+    "السيارات وقطع الغيار": [
+        'site:facebook.com "قطع غيار سيارات" مصر',
+        'site:facebook.com "auto parts" egypt',
+    ],
+    "الأمن والحراسة وأنظمة المراقبة": [
+        'site:facebook.com "كاميرات مراقبة" مصر',
+        'site:facebook.com "security systems" egypt',
+        'site:facebook.com "أنظمة إنذار" مصر',
+    ],
+    "التكييف والتبريد": [
+        'site:facebook.com "تكييف" مصر هاتف',
+        'site:facebook.com "air conditioning" egypt company',
+    ],
+    "معالجة المياه والصرف الصحي": [
+        'site:facebook.com "معالجة مياه" مصر',
+        'site:facebook.com "water treatment" egypt',
+    ],
+    "الطباعة والنشر والإعلان": [
+        'site:facebook.com "طباعة" مصر هاتف',
+        'site:facebook.com "printing company" egypt',
+    ],
+    "الأغذية والمشروبات": [
+        'site:facebook.com "صناعة غذائية" مصر',
+        'site:facebook.com "food company" egypt',
+    ],
+    "النسيج والملابس": [
+        'site:facebook.com "مصنع ملابس" مصر',
+        'site:facebook.com "textile factory" egypt',
+    ],
+    "الشحن والنقل واللوجستيات": [
+        'site:facebook.com "شركة شحن" مصر',
+        'site:facebook.com "logistics company" egypt',
+    ],
+    "الزراعة والري": [
+        'site:facebook.com "معدات زراعية" مصر',
+        'site:facebook.com "agricultural equipment" egypt',
     ],
 }
 
@@ -374,7 +663,6 @@ def scrape_fb_about(fb_url: str, category: str) -> dict | None:
         soup = BeautifulSoup(text, "html.parser")
         page_text = soup.get_text(separator=" ")
 
-        # اسم الصفحة
         title = soup.find("title")
         name = ""
         if title:
@@ -384,7 +672,6 @@ def scrape_fb_about(fb_url: str, category: str) -> dict | None:
         if not name or len(name) < 3:
             return None
 
-        # إيميل
         email = None
         for m in re.finditer(r'mailto:([^\s"\'<>?&]{4,80})', text, re.I):
             cand = clean_email(m.group(1))
@@ -398,13 +685,11 @@ def scrape_fb_about(fb_url: str, category: str) -> dict | None:
                     email = cand
                     break
 
-        # هاتف
         phone = None
         mob = MOBILE_RE.search(page_text)
         if mob:
             phone = mob.group(1)
 
-        # WhatsApp
         whatsapp = None
         wa_m = WA_RE.search(text)
         if wa_m:
@@ -412,7 +697,6 @@ def scrape_fb_about(fb_url: str, category: str) -> dict | None:
         if not whatsapp and phone and MOBILE_RE.match(phone):
             whatsapp = phone
 
-        # عنوان
         address = None
         for pat in [
             r'(?:Address|العنوان|موقعنا)[:\s]+(.{5,120}?)(?:\n|[.،])',
@@ -423,23 +707,39 @@ def scrape_fb_about(fb_url: str, category: str) -> dict | None:
                 address = am.group(1).strip()
                 break
 
+        if email:
+            contact_status = "✅ إيميل + " + ("واتساب" if whatsapp else "هاتف")
+        elif whatsapp:
+            contact_status = "📱 واتساب فقط"
+        elif phone:
+            contact_status = "☎ هاتف فقط"
+        else:
+            contact_status = "—"
+
         return {
-            "Company Name": name[:120],
-            "Phone":        phone,
-            "WhatsApp":     whatsapp,
-            "Email":        email,
-            "Address":      address,
-            "Category":     category,
-            "Source":       "Facebook",
-            "URL":          fb_url,
+            "Company Name":   name[:120],
+            "Phone":          phone,
+            "WhatsApp":       whatsapp,
+            "Email":          email,
+            "Address":        address,
+            "Website":        None,
+            "Category":       category,
+            "Contact Status": contact_status,
+            "Source":         "Facebook",
+            "URL":            fb_url,
         }
     except Exception:
         return None
 
 
 def run_facebook_scraper(max_per_cat: int = 40) -> list[dict]:
+    # فقط التصنيفات المختارة
+    active_queries = {
+        cat: queries for cat, queries in FB_QUERIES.items()
+        if matches_category(cat)
+    }
     results = []
-    for cat, queries in FB_QUERIES.items():
+    for cat, queries in active_queries.items():
         cat_res = []
         seen_urls: set[str] = set()
         for q in queries:
@@ -463,25 +763,24 @@ def run_facebook_scraper(max_per_cat: int = 40) -> list[dict]:
     return results
 
 
-# ===================== فلتر & حفظ =====================
-def has_valid_contact(rec: dict) -> bool:
-    em = str(rec.get("Email") or "").strip()
-    wa = re.sub(r"\D", "", str(rec.get("WhatsApp") or ""))
-    return ("@" in em) or (len(wa) >= 9)
-
-
+# ===================== الحفظ =====================
 def save_excel(records: list[dict], path: str) -> None:
     cols = ["Company Name", "Phone", "WhatsApp", "Email",
-            "Address", "Category", "Source", "URL"]
+            "Website", "Address", "Category", "Contact Status", "Source", "URL"]
     df = pd.DataFrame(records)
     df = df[[c for c in cols if c in df.columns]]
-    # Preserve leading zeros — save phone/WhatsApp as strings
     for col in ("Phone", "WhatsApp"):
         if col in df.columns:
             df[col] = df[col].apply(
                 lambda v: str(v).strip() if pd.notna(v) and str(v).strip() not in ("", "nan") else ""
             )
-    df.to_excel(path, index=False, engine="openpyxl")
+
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        # الورقة الأولى: شركات بإيميل فقط
+        with_email = df[df["Email"].notna() & (df["Email"] != "")]
+        with_email.to_excel(writer, sheet_name="شركات بإيميل", index=False)
+        # الورقة الثانية: كل الشركات
+        df.to_excel(writer, sheet_name="كل الشركات", index=False)
 
 
 # ===================== main =====================
@@ -499,7 +798,6 @@ def main():
         workers=20,
         id_start=300_000,
         id_end=720_000,
-        sample_size=60_000,   # عينة عشوائية من النطاق
     )
     all_records.extend(yp)
     print(f"\n✅ YellowPages: {len(yp)} شركة")
@@ -512,13 +810,9 @@ def main():
     fb = run_facebook_scraper(max_per_cat=40)
     all_records.extend(fb)
     print(f"\n✅ Facebook: {len(fb)} شركة")
-    if all_records:
-        save_excel(all_records, BACKUP_FILE)
 
-    # ── إحصاء & فلترة ───────────────────────────────────────────
+    # ── إحصاء & حفظ ─────────────────────────────────────────────
     print(f"\n{'='*64}")
-    print("📋 الفلترة النهائية...")
-
     if not all_records:
         print("❌ لا توجد بيانات!")
         return
@@ -527,24 +821,20 @@ def main():
     raw_total = len(df)
     df.drop_duplicates(subset=["Company Name"], keep="first", inplace=True)
     after_dd = len(df)
+    with_email = len(df[df["Email"].notna() & (df["Email"] != "")])
 
-    valid = [r for r in df.to_dict("records") if has_valid_contact(r)]
-    after_filter = len(valid)
+    save_excel(df.to_dict("records"), OUTPUT_FILE)
 
-    save_excel(valid, OUTPUT_FILE)
-
-    print(f"\n  إجمالي                : {raw_total}")
-    print(f"  بعد إزالة التكرار     : {after_dd}")
-    print(f"  بعد فلترة إيميل/WA    : {after_filter}")
+    print(f"\n  إجمالي الشركات      : {raw_total}")
+    print(f"  بعد إزالة التكرار   : {after_dd}")
+    print(f"  شركات بإيميل         : {with_email}")
     print(f"\n✅ الملف النهائي: {OUTPUT_FILE}")
+    print("   الورقة 1: 'شركات بإيميل'")
+    print("   الورقة 2: 'كل الشركات'")
 
-    df_out = pd.DataFrame(valid)
-    if "Source" in df_out.columns:
-        print("\n📊 المصادر:")
-        print(df_out["Source"].value_counts().to_string())
-    if "Category" in df_out.columns:
+    if "Category" in df.columns:
         print("\n📊 الفئات:")
-        print(df_out["Category"].value_counts().to_string())
+        print(df["Category"].value_counts().to_string())
 
 
 if __name__ == "__main__":
