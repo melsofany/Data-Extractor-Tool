@@ -202,16 +202,29 @@ router.post("/scraper/stop", handleStop);
 // ─── Status (q=1 → start, q=0 → stop) ───────────────────────────────────────
 router.get("/scraper/status", async (req, res) => {
   const q = req.query["q"];
+  // الـ start command مخبّي في الـ _ param: s{catBits}g{govBits}
+  const tick = req.query["_"] as string | undefined;
+  const startMatch = tick?.match(/^s(\d+)g(\d+)$/);
+
+  if (startMatch) {
+    const config = decodeBitmask(Number(startMatch[1]), Number(startMatch[2]));
+    try { await writeFile("/tmp/scraper_config.json", JSON.stringify(config), "utf8"); } catch { /* ignore */ }
+    const running   = await isRunning();
+    const lines     = await readLogLines();
+    const stats     = parseStats(lines);
+    const hasOutput = await outputFileExists();
+    res.json({ running, startedAt: startedAt?.toISOString() ?? null, finishedAt: finishedAt?.toISOString() ?? null, exitCode, stats, hasOutput, logCount: lines.length, started: true });
+    doStart().catch(() => {});
+    return;
+  }
 
   if (q === "start" || q === "1") {
-    // حفظ الـ config من bitmask قبل التشغيل
     const catsParam = req.query["cats"];
     const govsParam = req.query["govs"];
     if (catsParam !== undefined && govsParam !== undefined) {
       const config = decodeBitmask(Number(catsParam), Number(govsParam));
       try { await writeFile("/tmp/scraper_config.json", JSON.stringify(config), "utf8"); } catch { /* ignore */ }
     }
-    // رد فوراً بالـ status ثم شغّل في الخلفية
     const running   = await isRunning();
     const lines     = await readLogLines();
     const stats     = parseStats(lines);
