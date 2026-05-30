@@ -6,6 +6,29 @@ import path from "node:path";
 
 const router: IRouter = Router();
 
+// نفس الترتيب الموجود في الداشبورد بالضبط
+const CAT_NAMES = [
+  "الصحة والسلامة ومقاومة الحريق","الكهرباء والكابلات والأسلاك","الميكانيكا","الإلكترونيات",
+  "أدوات النظافة","معدات المطابخ الكبيرة الفندقية وقطع غيارها","الأثاث المكتبي","تكنولوجيا المعلومات (IT)",
+  "مواد البناء والمقاولات","المعدات الطبية والصيدلانية","السيارات وقطع الغيار","الأمن والحراسة وأنظمة المراقبة",
+  "التكييف والتبريد","معالجة المياه والصرف الصحي","الطباعة والنشر والإعلان","الأغذية والمشروبات",
+  "النسيج والملابس","الشحن والنقل واللوجستيات","الزراعة والري","العقارات والمقاولات",
+  "معدات البترول والطاقة","معدات الحفر والتنقيب","المعدات البحرية والملاحة",
+];
+const GOV_IDS = [
+  "cairo","alexandria","giza","qalyubia","sharkia","dakahlia","gharbia","beheira","menoufia",
+  "kafr-elsheikh","damietta","ismailia","port-said","suez","beni-suef","faiyum","minya",
+  "asyut","sohag","qena","luxor","aswan","red-sea","north-sinai","south-sinai","matrouh","new-valley",
+];
+
+function decodeBitmask(catBits: number, govBits: number) {
+  const ALL_CATS = (1 << CAT_NAMES.length) - 1;
+  const ALL_GOVS = (1 << GOV_IDS.length) - 1;
+  const cats = catBits === ALL_CATS ? null : CAT_NAMES.filter((_, i) => catBits & (1 << i));
+  const govs = govBits === ALL_GOVS ? null : GOV_IDS.filter((_, i) => govBits & (1 << i));
+  return { categories: cats, governorates: govs };
+}
+
 const SCRIPT_PATH = "/home/runner/workspace/scripts/scraper/egypt_companies_scraper.py";
 const OUTPUT_FILE = "/home/runner/workspace/Egypt_Companies_Real_Data.xlsx";
 const LOG_FILE    = "/tmp/scraper_live.log";
@@ -144,15 +167,15 @@ export async function doStop(): Promise<{ ok: boolean; error?: string }> {
 // ─── Start (GET + POST) ───────────────────────────────────────────────────────
 async function handleStart(req: any, res: any) {
   try {
-    // config من الـ GET query param (base64) أو من POST body
-    const cfgParam = req.query?.cfg as string | undefined;
-    const config = cfgParam
-      ? JSON.parse(Buffer.from(cfgParam, "base64").toString("utf8"))
-      : req.body?.config;
-    if (config) {
+    // bitmask params (cats/govs) — URL قصيرة بدل base64 طويل
+    const catsParam = req.query?.cats;
+    const govsParam = req.query?.govs;
+    if (catsParam !== undefined && govsParam !== undefined) {
+      const config = decodeBitmask(Number(catsParam), Number(govsParam));
       try { await writeFile("/tmp/scraper_config.json", JSON.stringify(config), "utf8"); } catch { /* ignore */ }
+    } else if (req.body?.config) {
+      try { await writeFile("/tmp/scraper_config.json", JSON.stringify(req.body.config), "utf8"); } catch { /* ignore */ }
     }
-    // ارد فوراً وشغّل في الخلفية عشان الـ proxy ما يعمل timeout
     res.json({ ok: true });
     doStart().catch(() => {});
   } catch (e) {
