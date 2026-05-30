@@ -182,6 +182,8 @@ async function handleStart(req: any, res: any) {
     res.status(500).json({ error: String(e) });
   }
 }
+router.get("/scraper/run", handleStart);
+router.post("/scraper/run", handleStart);
 router.get("/scraper/start", handleStart);
 router.post("/scraper/start", handleStart);
 
@@ -201,13 +203,22 @@ router.post("/scraper/stop", handleStop);
 router.get("/scraper/status", async (req, res) => {
   const q = req.query["q"];
 
-  if (q === "1") {
-    try {
-      const result = await doStart();
-      if (!result.ok) { res.status(409).json({ error: result.error }); return; }
-    } catch (e) {
-      res.status(500).json({ error: String(e) }); return;
+  if (q === "start" || q === "1") {
+    // حفظ الـ config من bitmask قبل التشغيل
+    const catsParam = req.query["cats"];
+    const govsParam = req.query["govs"];
+    if (catsParam !== undefined && govsParam !== undefined) {
+      const config = decodeBitmask(Number(catsParam), Number(govsParam));
+      try { await writeFile("/tmp/scraper_config.json", JSON.stringify(config), "utf8"); } catch { /* ignore */ }
     }
+    // رد فوراً بالـ status ثم شغّل في الخلفية
+    const running   = await isRunning();
+    const lines     = await readLogLines();
+    const stats     = parseStats(lines);
+    const hasOutput = await outputFileExists();
+    res.json({ running, startedAt: startedAt?.toISOString() ?? null, finishedAt: finishedAt?.toISOString() ?? null, exitCode, stats, hasOutput, logCount: lines.length });
+    doStart().catch(() => {});
+    return;
   } else if (q === "0") {
     try { await doStop(); } catch { /* ignore */ }
   }

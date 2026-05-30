@@ -344,7 +344,7 @@ async function startScraper(){
     // bitmask — URL قصير جداً بدل base64 طويل
     const catBits=CATEGORIES.reduce((b,c,i)=>b|((!config.categories||config.categories.includes(c.id))?(1<<i):0),0);
     const govBits=GOVERNORATES.reduce((b,g,i)=>b|((!config.governorates||config.governorates.includes(g.id))?(1<<i):0),0);
-    const r=await fetch('/api/scraper/start?_='+Date.now()+'&cats='+catBits+'&govs='+govBits,{cache:'no-store'});
+    const r=await fetch('/api/scraper/status?_='+Date.now()+'&q=start&cats='+catBits+'&govs='+govBits,{cache:'no-store'});
     const text=await r.text();
     let d={ok:r.ok};
     try{ if(text) d=JSON.parse(text); }catch{ /* ignore parse error */ }
