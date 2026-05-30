@@ -285,10 +285,6 @@ function phaseLabel(p){
 
 async function fetchStatus(){
   try{
-    if(window.__pendingStart){
-      document.cookie='__sc='+window.__pendingStart.c+','+window.__pendingStart.v+';path=/;max-age=10';
-      window.__pendingStart=null;
-    }
     const r=await fetch('/api/scraper/status?_='+Date.now(), NC);
     if(!r.ok) return;
     const d=await r.json();
@@ -343,10 +339,14 @@ async function startScraper(){
   document.getElementById('badge').className='badge running';
   document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
   const config=collectConfig();
-  const catBits=CATEGORIES.reduce((b,c,i)=>b|((!config.categories||config.categories.includes(c.id))?(1<<i):0),0);
-  const govBits=GOVERNORATES.reduce((b,g,i)=>b|((!config.governorates||config.governorates.includes(g.id))?(1<<i):0),0);
-  // نبعت أمر التشغيل عن طريق الـ polling interval — مش عن طريق fetch منفصل
-  window.__pendingStart={c:catBits,v:govBits};
+  try{
+    await fetch('/api/scraper/start',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({config}),
+      cache:'no-store'
+    });
+  }catch(e){ showErr('فشل الاتصال: '+e); }
   startPolling();
 }
 
