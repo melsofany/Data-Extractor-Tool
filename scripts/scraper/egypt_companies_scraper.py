@@ -804,16 +804,23 @@ def save_excel(records: list[dict], path: str) -> None:
     df = df[[c for c in cols if c in df.columns]]
     for col in ("Phone", "WhatsApp"):
         if col in df.columns:
-            df[col] = df[col].apply(
-                lambda v: str(v).strip() if pd.notna(v) and str(v).strip() not in ("", "nan") else ""
-            )
+            def _fix_phone(v):
+                if pd.isna(v) or str(v).strip() in ("", "nan"):
+                    return ""
+                s = str(v)
+                if s.endswith(".0"):
+                    s = s[:-2]
+                if s and not s.startswith("0") and len(s) == 10:
+                    s = "0" + s
+                return s.strip()
+            df[col] = df[col].apply(_fix_phone)
 
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        # الورقة الأولى: شركات بإيميل فقط
+        # الورقة الأولى: كل الشركات (تُفتح تلقائياً)
+        df.to_excel(writer, sheet_name="كل الشركات", index=False)
+        # الورقة الثانية: شركات بإيميل فقط
         with_email = df[df["Email"].notna() & (df["Email"] != "")]
         with_email.to_excel(writer, sheet_name="شركات بإيميل", index=False)
-        # الورقة الثانية: كل الشركات
-        df.to_excel(writer, sheet_name="كل الشركات", index=False)
 
 
 # ===================== main =====================
