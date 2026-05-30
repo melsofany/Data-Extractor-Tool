@@ -149,9 +149,9 @@ async function handleStart(req: any, res: any) {
     if (config) {
       try { await writeFile("/tmp/scraper_config.json", JSON.stringify(config), "utf8"); } catch { /* ignore */ }
     }
-    const result = await doStart();
-    if (!result.ok) { res.status(409).json({ error: result.error }); return; }
-    res.json({ ok: true, pid: result.pid });
+    // ارد فوراً وشغّل في الخلفية عشان الـ proxy ما يعمل timeout
+    res.json({ ok: true });
+    doStart().catch(() => {});
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
