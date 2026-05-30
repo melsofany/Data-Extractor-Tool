@@ -321,6 +321,11 @@ async function fetchLogs(){
     const r=await fetch('/api/scraper/logs?since='+logOffset+'&_='+Date.now(), NC);
     if(!r.ok) return;
     const d=await r.json();
+    // لو الملف اتمسح وبدأ من أول (بعد تشغيل جديد)، صفّر الـ offset وامسح الـ log box
+    if(d.total < logOffset){
+      logOffset=0;
+      document.getElementById('logBox').innerHTML='';
+    }
     if(d.lines.length>0){ appendLines(d.lines); logOffset=d.total; }
   }catch(e){ console.error('logs error',e); }
 }
@@ -368,6 +373,8 @@ function sendCmd(cmd, extra){
 
 async function startScraper(){
   hideErr();
+  // أوقف الـ polling القديم فوراً عشان ما يرفعش logOffset
+  if(polling){ clearInterval(polling); polling=null; }
   document.getElementById('startBtn').disabled=true;
   document.getElementById('logBox').innerHTML='';
   logOffset=0;
@@ -377,8 +384,11 @@ async function startScraper(){
   try{
     const config=collectConfig();
     const d=await sendCmd('go', {config});
-    if(d.ok===false&&d.error){ showErr(d.error); document.getElementById('startBtn').disabled=false; return; }
-  }catch(e){ showErr('خطأ: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; return; }
+    if(d.ok===false&&d.error){ showErr(d.error); document.getElementById('startBtn').disabled=false; startPolling(); return; }
+  }catch(e){ showErr('خطأ: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; startPolling(); return; }
+  // صفّر الـ offset بعد ما السيرفر أكد البدء (الملف اتمسح الآن)
+  logOffset=0;
+  document.getElementById('logBox').innerHTML='';
   startPolling();
 }
 
