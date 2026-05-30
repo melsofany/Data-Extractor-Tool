@@ -341,15 +341,11 @@ async function startScraper(){
   document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
   try{
     const config=collectConfig();
-    const r=await fetch('/api/scraper/start?_='+Date.now(),{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      cache:'no-store',
-      body:JSON.stringify({config})
-    });
+    const cfg=btoa(unescape(encodeURIComponent(JSON.stringify(config))));
+    const r=await fetch('/api/scraper/start?_='+Date.now()+'&cfg='+encodeURIComponent(cfg),{cache:'no-store'});
     const text=await r.text();
     let d={ok:r.ok};
-    try{ if(text) d=JSON.parse(text); }catch{ /* ignore parse error, rely on HTTP status */ }
+    try{ if(text) d=JSON.parse(text); }catch{ /* ignore parse error */ }
     if(!r.ok||d.ok===false){ showErr(d.error||'خطأ في البدء ('+r.status+')'); document.getElementById('startBtn').disabled=false; startPolling(); return; }
   }catch(e){ showErr('خطأ في الاتصال: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; startPolling(); return; }
   logOffset=0;

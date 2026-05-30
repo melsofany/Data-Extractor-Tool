@@ -144,8 +144,11 @@ export async function doStop(): Promise<{ ok: boolean; error?: string }> {
 // ─── Start (GET + POST) ───────────────────────────────────────────────────────
 async function handleStart(req: any, res: any) {
   try {
-    // اكتب الـ config لو موجود في الـ body
-    const config = req.body?.config;
+    // config من الـ GET query param (base64) أو من POST body
+    const cfgParam = req.query?.cfg as string | undefined;
+    const config = cfgParam
+      ? JSON.parse(Buffer.from(cfgParam, "base64").toString("utf8"))
+      : req.body?.config;
     if (config) {
       try { await writeFile("/tmp/scraper_config.json", JSON.stringify(config), "utf8"); } catch { /* ignore */ }
     }
