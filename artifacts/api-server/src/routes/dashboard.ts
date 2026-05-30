@@ -330,50 +330,8 @@ async function fetchLogs(){
   }catch(e){ console.error('logs error',e); }
 }
 
-/* ─── WebSocket ────────────────────────────────────────────── */
-let ws=null, wsReady=false;
-
-function connectWS(){
-  const proto=location.protocol==='https:'?'wss:':'ws:';
-  try{ ws=new WebSocket(proto+'//'+location.host); }catch(e){ setTimeout(connectWS,3000); return; }
-  ws.onopen=()=>{ wsReady=true; };
-  ws.onclose=()=>{ wsReady=false; setTimeout(connectWS,2000); };
-  ws.onerror=()=>{ wsReady=false; };
-  ws.onmessage=(e)=>{
-    try{
-      const d=JSON.parse(e.data);
-      if(d.ok===false&&d.error){ showErr(d.error); document.getElementById('startBtn').disabled=false; return; }
-    }catch(err){}
-  };
-}
-
-function sendCmd(cmd, extra){
-  return new Promise((resolve,reject)=>{
-    const timeout=setTimeout(()=>reject(new Error('timeout')),8000);
-    const payload=JSON.stringify({cmd, ...extra});
-    const send=(socket)=>{
-      const onMsg=(e)=>{
-        clearTimeout(timeout);
-        socket.removeEventListener('message',onMsg);
-        try{ resolve(JSON.parse(e.data)); }catch{ resolve({ok:true}); }
-      };
-      socket.addEventListener('message',onMsg);
-      socket.send(payload);
-    };
-    if(ws&&ws.readyState===WebSocket.OPEN){
-      send(ws);
-    } else {
-      const proto=location.protocol==='https:'?'wss:':'ws:';
-      const tmp=new WebSocket(proto+'//'+location.host);
-      tmp.onopen=()=>send(tmp);
-      tmp.onerror=()=>{ clearTimeout(timeout); reject(new Error('WS error')); };
-    }
-  });
-}
-
 async function startScraper(){
   hideErr();
-  // أوقف الـ polling القديم فوراً عشان ما يرفعش logOffset
   if(polling){ clearInterval(polling); polling=null; }
   document.getElementById('startBtn').disabled=true;
   document.getElementById('logBox').innerHTML='';
@@ -383,17 +341,22 @@ async function startScraper(){
   document.getElementById('badge').innerHTML='<span class="dot"></span> جاري التشغيل';
   try{
     const config=collectConfig();
-    const d=await sendCmd('go', {config});
-    if(d.ok===false&&d.error){ showErr(d.error); document.getElementById('startBtn').disabled=false; startPolling(); return; }
+    const r=await fetch('/api/scraper/start?_='+Date.now(),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      cache:'no-store',
+      body:JSON.stringify({config})
+    });
+    const d=await r.json();
+    if(!r.ok||d.ok===false){ showErr(d.error||'خطأ في البدء'); document.getElementById('startBtn').disabled=false; startPolling(); return; }
   }catch(e){ showErr('خطأ: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; startPolling(); return; }
-  // صفّر الـ offset بعد ما السيرفر أكد البدء (الملف اتمسح الآن)
   logOffset=0;
   document.getElementById('logBox').innerHTML='';
   startPolling();
 }
 
 async function stopScraper(){
-  try{ await sendCmd('off',{}); }catch{ /* ignore */ }
+  try{ await fetch('/api/scraper/stop?_='+Date.now(),{method:'POST',cache:'no-store'}); }catch{ /* ignore */ }
 }
 
 function startPolling(){
@@ -404,7 +367,6 @@ function startPolling(){
   },1000);
 }
 
-connectWS();
 (async()=>{ await fetchStatus(); await fetchLogs(); startPolling(); })();
 </script>
 </body>

@@ -142,8 +142,13 @@ export async function doStop(): Promise<{ ok: boolean; error?: string }> {
 }
 
 // ─── Start (GET + POST) ───────────────────────────────────────────────────────
-async function handleStart(_req: any, res: any) {
+async function handleStart(req: any, res: any) {
   try {
+    // اكتب الـ config لو موجود في الـ body
+    const config = req.body?.config;
+    if (config) {
+      try { await writeFile("/tmp/scraper_config.json", JSON.stringify(config), "utf8"); } catch { /* ignore */ }
+    }
     const result = await doStart();
     if (!result.ok) { res.status(409).json({ error: result.error }); return; }
     res.json({ ok: true, pid: result.pid });
