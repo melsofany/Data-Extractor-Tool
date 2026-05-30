@@ -347,9 +347,11 @@ async function startScraper(){
       cache:'no-store',
       body:JSON.stringify({config})
     });
-    const d=await r.json();
-    if(!r.ok||d.ok===false){ showErr(d.error||'خطأ في البدء'); document.getElementById('startBtn').disabled=false; startPolling(); return; }
-  }catch(e){ showErr('خطأ: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; startPolling(); return; }
+    const text=await r.text();
+    let d={ok:r.ok};
+    try{ if(text) d=JSON.parse(text); }catch{ /* ignore parse error, rely on HTTP status */ }
+    if(!r.ok||d.ok===false){ showErr(d.error||'خطأ في البدء ('+r.status+')'); document.getElementById('startBtn').disabled=false; startPolling(); return; }
+  }catch(e){ showErr('خطأ في الاتصال: '+(e&&e.message?e.message:String(e))); document.getElementById('startBtn').disabled=false; startPolling(); return; }
   logOffset=0;
   document.getElementById('logBox').innerHTML='';
   startPolling();
