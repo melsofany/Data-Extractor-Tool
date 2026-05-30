@@ -285,11 +285,11 @@ function phaseLabel(p){
 
 async function fetchStatus(){
   try{
-    const url=window.__pendingStart
-      ?'/api/scraper/status?_=s'+window.__pendingStart.c+'g'+window.__pendingStart.v
-      :'/api/scraper/status?_='+Date.now();
-    window.__pendingStart=null;
-    const r=await fetch(url, NC);
+    if(window.__pendingStart){
+      document.cookie='__sc='+window.__pendingStart.c+','+window.__pendingStart.v+';path=/;max-age=10';
+      window.__pendingStart=null;
+    }
+    const r=await fetch('/api/scraper/status?_='+Date.now(), NC);
     if(!r.ok) return;
     const d=await r.json();
     const running=d.running;
