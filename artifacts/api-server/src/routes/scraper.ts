@@ -35,9 +35,14 @@ const LOG_FILE    = "/tmp/scraper_live.log";
 const PID_FILE    = "/tmp/scraper.pid";
 
 let scraperProcess: ChildProcess | null = null;
-let startedAt: Date | null = null;
-let finishedAt: Date | null = null;
-let exitCode: number | null = null;
+export let startedAt: Date | null = null;
+export let finishedAt: Date | null = null;
+export let exitCode: number | null = null;
+
+export function getScraperState() {
+  return { startedAt, finishedAt, exitCode };
+}
+export { isRunning, readLogLines, parseStats, outputFileExists };
 
 /** يُستدعى مرة واحدة عند بدء السيرفر لإنهاء أي سكريبت قديم تلقائياً */
 export async function killOrphanedScraper(): Promise<void> {
